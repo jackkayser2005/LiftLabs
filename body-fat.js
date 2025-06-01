@@ -1,4 +1,6 @@
 // body-fat.js
+import 'node-libs-react-native/globals';
+import 'react-native-url-polyfill/auto';
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -822,3 +824,4 @@ const createStyles = (isDarkMode) => StyleSheet.create({
 });
 
 export default BodyFatCalculator;
+
