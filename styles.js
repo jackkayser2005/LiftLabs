@@ -899,6 +899,9 @@ export default StyleSheet.create({
     borderColor: '#e0e0e0',
     color: '#1a1a1a',
   },
+  accentInput: {
+    borderColor: '#1abc9c',
+  },
   infoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1379,12 +1382,16 @@ export default StyleSheet.create({
   },
   foodSectionTitle: {
     color: '#fff',
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: '700',
     marginBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1abc9c',
+    paddingBottom: 4,
   },
   foodSectionTitleLight: {
     color: '#1a1a1a',
+    borderBottomColor: '#1abc9c',
   },
 
   // ─── FOOD SEARCH ───
@@ -1401,12 +1408,12 @@ export default StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#1abc9c',
     marginRight: 10,
   },
   foodSearchInputLight: {
     backgroundColor: '#f8f9fa',
-    borderColor: '#e0e0e0',
+    borderColor: '#1abc9c',
     color: '#1a1a1a',
   },
   searchBtn: {
