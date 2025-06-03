@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
+  StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from './supabaseClient';
@@ -123,6 +124,54 @@ const Leaderboard = ({ isDarkMode = true }) => {
   const getExpBarWidth = (exp, maxExp) => {
     return Math.min((exp / maxExp) * 100, 100);
   };
+
+  const LeaderboardRow = ({ user, index }) => (
+    <View
+      key={user.user_id || index}
+      style={[
+        styles.tableRow,
+        !isDarkMode && styles.tableRowLight,
+        index === 0 && styles.firstPlaceRow,
+        index === 1 && styles.secondPlaceRow,
+        index === 2 && styles.thirdPlaceRow,
+      ]}
+    >
+      <View style={styles.rankColumn}>
+        <Text
+          style={[
+            styles.rankText,
+            !isDarkMode && styles.rankTextLight,
+            { color: getRankColor(user.rank) },
+          ]}
+        >
+          {getRankIcon(user.rank) || `#${user.rank}`}
+        </Text>
+      </View>
+
+      <View style={styles.userColumn}>
+        <Text style={[styles.userName, !isDarkMode && styles.userNameLight]}>
+          {user.first_name || 'Anonymous'}
+        </Text>
+        <Text style={[styles.userLevel, !isDarkMode && styles.userLevelLight]}>
+          Level {user.level || 1}
+        </Text>
+      </View>
+
+      <View style={styles.xpColumn}>
+        <Text style={[styles.xpText, !isDarkMode && styles.xpTextLight]}>
+          {user.exp.toLocaleString()} XP
+        </Text>
+        <View style={[styles.xpBar, !isDarkMode && styles.xpBarLight]}>
+          <View
+            style={[
+              styles.xpFill,
+              { width: `${getExpBarWidth(user.exp, maxExp)}%` },
+            ]}
+          />
+        </View>
+      </View>
+    </View>
+  );
 
   const maxExp = leaders.length > 0 ? leaders[0].exp : 1;
 
@@ -244,54 +293,7 @@ const Leaderboard = ({ isDarkMode = true }) => {
         </View>
 
         {leaders.map((user, index) => (
-          <View
-            key={index}
-            style={[
-              styles.tableRow,
-              !isDarkMode && styles.tableRowLight,
-              index === 0 && styles.firstPlaceRow,
-              index === 1 && styles.secondPlaceRow,
-              index === 2 && styles.thirdPlaceRow,
-            ]}
-          >
-            {/* Rank */}
-            <View style={styles.rankColumn}>
-              <Text
-                style={[
-                  styles.rankText,
-                  !isDarkMode && styles.rankTextLight,
-                  { color: getRankColor(user.rank) }
-                ]}
-              >
-                {getRankIcon(user.rank) || `#${user.rank}`}
-              </Text>
-            </View>
-
-            {/* User Info */}
-            <View style={styles.userColumn}>
-              <Text style={[styles.userName, !isDarkMode && styles.userNameLight]}>
-                {user.first_name || 'Anonymous'}
-              </Text>
-              <Text style={[styles.userLevel, !isDarkMode && styles.userLevelLight]}>
-                Level {user.level || 1}
-              </Text>
-            </View>
-
-            {/* XP Progress */}
-            <View style={styles.xpColumn}>
-              <Text style={[styles.xpText, !isDarkMode && styles.xpTextLight]}>
-                {user.exp.toLocaleString()} XP
-              </Text>
-              <View style={[styles.xpBar, !isDarkMode && styles.xpBarLight]}>
-                <View
-                  style={[
-                    styles.xpFill,
-                    { width: `${getExpBarWidth(user.exp, maxExp)}%` }
-                  ]}
-                />
-              </View>
-            </View>
-          </View>
+          <LeaderboardRow key={user.user_id || index} user={user} index={index} />
         ))}
       </View>
 
@@ -306,7 +308,7 @@ const Leaderboard = ({ isDarkMode = true }) => {
 };
 
 // Styles
-const styles = {
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -371,6 +373,11 @@ const styles = {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#333',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   headerLight: {
     backgroundColor: '#fff',
@@ -409,6 +416,11 @@ const styles = {
     borderWidth: 1,
     borderColor: '#333',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   userStatsLight: {
     backgroundColor: '#fff',
@@ -435,6 +447,11 @@ const styles = {
     padding: 20,
     borderWidth: 1,
     borderColor: '#333',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   podiumLight: {
     backgroundColor: '#fff',
@@ -528,6 +545,11 @@ const styles = {
     borderWidth: 1,
     borderColor: '#333',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   tableContainerLight: {
     backgroundColor: '#fff',
@@ -647,6 +669,6 @@ const styles = {
   footerTextLight: {
     color: '#6c757d',
   },
-};
+});
 
 export default Leaderboard;
