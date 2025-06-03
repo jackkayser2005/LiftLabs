@@ -655,25 +655,24 @@ export default function CalorieTracker({ isDarkMode }) {
         fat_consumed: (existingLog.fat_consumed || 0) + fatVal,
       };
 
-      const { error: updateError } = await supabase
+      const { data: updatedLog, error: updateError } = await supabase
         .from('calorie_logs')
         .update(updatedTotals)
-        .eq('id', existingLog.id);
+        .eq('id', existingLog.id)
+        .select('id, total_calories, protein_consumed, carb_consumed, fat_consumed')
+        .single();
 
       if (updateError) {
         console.warn('Error updating today calorie_log:', updateError.message);
-      } else {
-        // 5a.iii) Update local state so UI immediately shows new remaining
+      } else if (updatedLog) {
+        // 5a.iii) Update local state with the freshly returned totals
         setTodayEntry({
-          id: existingLog.id,
-          total_calories: updatedTotals.total_calories,
-          protein: updatedTotals.protein_consumed,
-          carbs: updatedTotals.carb_consumed,
-          fat: updatedTotals.fat_consumed,
+          id: updatedLog.id,
+          total_calories: updatedLog.total_calories,
+          protein: updatedLog.protein_consumed,
+          carbs: updatedLog.carb_consumed,
+          fat: updatedLog.fat_consumed,
         });
-
-        // Refresh full log from DB to ensure data consistency
-        await fetchTodayLogs();
       }
 
       // 5a.iv) Clear the macro inputs & collapse micros
