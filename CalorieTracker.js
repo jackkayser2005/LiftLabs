@@ -671,6 +671,9 @@ export default function CalorieTracker({ isDarkMode }) {
           carbs: updatedTotals.carb_consumed,
           fat: updatedTotals.fat_consumed,
         });
+
+        // Refresh full log from DB to ensure data consistency
+        await fetchTodayLogs();
       }
 
       // 5a.iv) Clear the macro inputs & collapse micros
@@ -703,31 +706,47 @@ export default function CalorieTracker({ isDarkMode }) {
   //      → autofill macros and subtract just like ByMacros
   //────────────────────────────────────────────────────────────────
 
-  // Demo array is for local‐testing only. In production, replace this with a Supabase fetch from your “foods” table.
-  const FOOD_DB = [
-    { name: 'Banana', protein: 1, carbs: 27, fat: 0.3 },
-    { name: 'Chicken (100g)', protein: 31, carbs: 0, fat: 3.6 },
-    { name: 'Apple', protein: 0.3, carbs: 25, fat: 0.2 },
-    { name: 'Rice (100g)', protein: 2.7, carbs: 28, fat: 0.3 },
-  ];
+  // Fetch food items from the logged in user’s "foods" table
   const [foodSearch, setFoodSearch] = useState('');
   const [matchedFood, setMatchedFood] = useState(null);
 
-  function handleFoodLookup() {
-    const found = FOOD_DB.find(
-      (f) => f.name.toLowerCase() === foodSearch.trim().toLowerCase()
-    );
-    if (!found) {
-      Alert.alert('Not found', 'That food name is not in our demo database.');
-      setMatchedFood(null);
+  async function handleFoodLookup() {
+    if (!foodSearch.trim()) {
+      Alert.alert('Enter a food name to search.');
       return;
     }
-    setMatchedFood(found);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Not signed in');
+        return;
+      }
 
-    // Auto-fill macros (so we can call handleSubmitFoodLog_ByMacros() immediately)
-    setProteinIn(found.protein.toString());
-    setCarbsIn(found.carbs.toString());
-    setFatIn(found.fat.toString());
+      const { data, error } = await supabase
+        .from('foods')
+        .select('name, protein, carbs, fat')
+        .ilike('name', foodSearch.trim())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        Alert.alert('Not found', 'That food is not in your database.');
+        setMatchedFood(null);
+        return;
+      }
+
+      setMatchedFood(data);
+
+      // Auto-fill macros so user can immediately log this food
+      setProteinIn(data.protein.toString());
+      setCarbsIn(data.carbs.toString());
+      setFatIn(data.fat.toString());
+    } catch (e) {
+      console.warn('Exception in handleFoodLookup:', e.message);
+    }
   }
 
   //────────────────────────────────────────────────────────────────
@@ -1525,17 +1544,33 @@ export default function CalorieTracker({ isDarkMode }) {
                         paddingVertical: 12,
                       },
                     ]}
-                    onPress={handleSubmitFoodLog_ByMacros}
-                    disabled={submittingLog}
-                  >
-                    {submittingLog ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.setGoalBtnText}>Log This Meal</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              )}
+                  onPress={handleSubmitFoodLog_ByMacros}
+                  disabled={submittingLog}
+                >
+                  {submittingLog ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.setGoalBtnText}>Log This Meal</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.setGoalBtn,
+                    {
+                      marginTop: 12,
+                      backgroundColor: '#444',
+                      alignSelf: 'center',
+                      paddingHorizontal: 24,
+                      paddingVertical: 12,
+                    },
+                  ]}
+                  onPress={() => setActiveLogTab('byName')}
+                >
+                  <Text style={styles.setGoalBtnText}>Search My Foods</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
               {/* ─── LOG BY FOOD NAME ─── */}
               {activeLogTab === 'byName' && (
@@ -1577,10 +1612,26 @@ export default function CalorieTracker({ isDarkMode }) {
                       styles.setGoalBtn,
                       { marginTop: 12, backgroundColor: '#1abc9c', alignSelf: 'center' },
                     ]}
-                    onPress={handleFoodLookup}
-                  >
-                    <Text style={styles.setGoalBtnText}>Lookup</Text>
-                  </TouchableOpacity>
+                  onPress={handleFoodLookup}
+                >
+                  <Text style={styles.setGoalBtnText}>Lookup</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.setGoalBtn,
+                    {
+                      marginTop: 12,
+                      backgroundColor: '#444',
+                      alignSelf: 'center',
+                      paddingHorizontal: 24,
+                      paddingVertical: 12,
+                    },
+                  ]}
+                  onPress={() => setActiveLogTab('addFood')}
+                >
+                  <Text style={styles.setGoalBtnText}>Add New Food</Text>
+                </TouchableOpacity>
 
                   {/* If matchedFood, show its macros & allow “Log <Food>” */}
                   {matchedFood && (
@@ -1728,17 +1779,33 @@ export default function CalorieTracker({ isDarkMode }) {
                         paddingVertical: 12,
                       },
                     ]}
-                    onPress={handleAddNewFood}
-                    disabled={submittingNewFood}
-                  >
-                    {submittingNewFood ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.setGoalBtnText}>Add New Food</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              )}
+                  onPress={handleAddNewFood}
+                  disabled={submittingNewFood}
+                >
+                  {submittingNewFood ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.setGoalBtnText}>Add New Food</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.setGoalBtn,
+                    {
+                      marginTop: 12,
+                      backgroundColor: '#444',
+                      alignSelf: 'center',
+                      paddingHorizontal: 24,
+                      paddingVertical: 12,
+                    },
+                  ]}
+                  onPress={() => setActiveLogTab('byName')}
+                >
+                  <Text style={styles.setGoalBtnText}>Back to Search</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             </View>
           )}
 
