@@ -196,7 +196,43 @@ export default function ProfileScreen({
     }
   };
 
-  /** ---------------------- Early exits + loading spinners ---------------------- */
+  /** ---------------------- Helpers for Calendar ---------------------- */
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  function generateCalendar(year, month) {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const weeks = [];
+    let week = [];
+
+    const startWeekday = firstDay.getDay(); // 0 = Sunday
+    for (let i = 0; i < startWeekday; i++) {
+      week.push(null);
+    }
+
+    for (let date = 1; date <= lastDay.getDate(); date++) {
+      const dateObj = new Date(year, month, date);
+      week.push(dateObj);
+      if (dateObj.getDay() === 6) {
+        weeks.push(week);
+        week = [];
+      }
+    }
+
+    if (week.length > 0) {
+      while (week.length < 7) week.push(null);
+      weeks.push(week);
+    }
+
+    return weeks;
+  }
+
+  const weeks = useMemo(() => generateCalendar(calendarYear, calendarMonth), [calendarYear, calendarMonth]);
+
+/** ---------------------- Early exits + loading spinners ---------------------- */
   if (!session?.user) {
     return (
       <View style={[styles.center, { backgroundColor: dark ? '#0a0f0d' : '#fff' }]}>
@@ -236,48 +272,6 @@ export default function ProfileScreen({
   const xpNeeded = 1000;
   const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
 
-  /** ---------------------- Helpers for Calendar ---------------------- */
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
-  ];
-
-  function generateCalendar(year, month) {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const weeks = [];
-    let week = [];
-
-    // Fill blanks before the 1st
-    const startWeekday = firstDay.getDay(); // 0 = Sunday
-    for (let i = 0; i < startWeekday; i++) {
-      week.push(null);
-    }
-
-    // Fill actual days
-    for (let date = 1; date <= lastDay.getDate(); date++) {
-      const dateObj = new Date(year, month, date);
-      week.push(dateObj);
-      if (dateObj.getDay() === 6) {
-        weeks.push(week);
-        week = [];
-      }
-    }
-
-    // If any days left in last week, pad to length 7
-    if (week.length > 0) {
-      while (week.length < 7) week.push(null);
-      weeks.push(week);
-    }
-
-    return weeks;
-  }
-
-  // Recompute calendar weeks only when month or year changes
-  const weeks = useMemo(
-    () => generateCalendar(calendarYear, calendarMonth),
-    [calendarYear, calendarMonth]
-  );
 
   /** ---------------------- Main Render ---------------------- */
   return (
