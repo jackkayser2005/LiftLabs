@@ -1740,8 +1740,55 @@ genderText: {
 genderTextLight: {
   color: '#1a1a1a',
 },
-genderTextActive: {
-  color: '#1abc9c',
-},
+  genderTextActive: {
+    color: '#1abc9c',
+  },
+
+  // === VIDEO TABS ===
+  videoTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#222',
+  },
+  videoTabsLight: {
+    backgroundColor: '#e9ecef',
+  },
+  videoTabBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  videoTabBtnActive: {
+    backgroundColor: '#1abc9c',
+  },
+  videoTabText: {
+    color: '#bbb',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  videoTabTextActive: {
+    color: '#fff',
+  },
+
+  uploadOverlay: {
+    position: 'absolute',
+    top: 100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  uploadText: {
+    marginTop: 8,
+    color: '#1abc9c',
+    fontWeight: '600',
+  },
+  liveLocked: {
+    alignItems: 'center',
+    marginTop: 40,
+  },
 
 });
