@@ -663,7 +663,10 @@ export default function CalorieTracker({ isDarkMode }) {
       if (updateError) {
         console.warn('Error updating today calorie_log:', updateError.message);
       } else {
-        // 5a.iii) Update local state so UI immediately shows new remaining
+        // Refresh from DB so state & progress bar reflect latest totals
+        await fetchTodayLogs();
+
+        // 5a.iii) Update local state immediately for snappier UI
         setTodayEntry({
           id: existingLog.id,
           total_calories: updatedTotals.total_calories,
@@ -672,18 +675,15 @@ export default function CalorieTracker({ isDarkMode }) {
           fat: updatedTotals.fat_consumed,
         });
 
-        // Refresh full log from DB to ensure data consistency
-        await fetchTodayLogs();
+        // 5a.iv) Animate progress only after state is current
+        animateProgress();
       }
 
-      // 5a.iv) Clear the macro inputs & collapse micros
+      // 5a.v) Clear the macro inputs & collapse micros
       setProteinIn('');
       setCarbsIn('');
       setFatIn('');
       setShowMicros(false);
-
-      // 5a.v) Animate the progress bar
-      animateProgress();
 
       // 5a.vi) If remaining calories ≤ 0 and we haven't awarded streak/XP today:
       if (updatedTotals.total_calories <= 0 && !streakToday) {
@@ -1599,7 +1599,11 @@ export default function CalorieTracker({ isDarkMode }) {
                       Food Name
                     </Text>
                     <TextInput
-                      style={[styles.input, isDarkMode ? {} : styles.inputLight]}
+                      style={[
+                        styles.input,
+                        styles.accentInput,
+                        isDarkMode ? {} : styles.inputLight,
+                      ]}
                       placeholder="e.g. Banana"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       value={foodSearch}
@@ -1700,7 +1704,11 @@ export default function CalorieTracker({ isDarkMode }) {
                       Food Name
                     </Text>
                     <TextInput
-                      style={[styles.input, isDarkMode ? {} : styles.inputLight]}
+                      style={[
+                        styles.input,
+                        styles.accentInput,
+                        isDarkMode ? {} : styles.inputLight,
+                      ]}
                       placeholder="e.g. Oatmeal"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       value={newFoodName}
@@ -1714,7 +1722,11 @@ export default function CalorieTracker({ isDarkMode }) {
                       Serving Size (e.g. 1 cup)
                     </Text>
                     <TextInput
-                      style={[styles.input, isDarkMode ? {} : styles.inputLight]}
+                      style={[
+                        styles.input,
+                        styles.accentInput,
+                        isDarkMode ? {} : styles.inputLight,
+                      ]}
                       placeholder="e.g. 1 cup"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       value={newServingSize}
@@ -1728,7 +1740,11 @@ export default function CalorieTracker({ isDarkMode }) {
                       Protein (g)
                     </Text>
                     <TextInput
-                      style={[styles.input, isDarkMode ? {} : styles.inputLight]}
+                      style={[
+                        styles.input,
+                        styles.accentInput,
+                        isDarkMode ? {} : styles.inputLight,
+                      ]}
                       placeholder="e.g. 5"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
@@ -1743,7 +1759,11 @@ export default function CalorieTracker({ isDarkMode }) {
                       Carbs (g)
                     </Text>
                     <TextInput
-                      style={[styles.input, isDarkMode ? {} : styles.inputLight]}
+                      style={[
+                        styles.input,
+                        styles.accentInput,
+                        isDarkMode ? {} : styles.inputLight,
+                      ]}
                       placeholder="e.g. 20"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
@@ -1758,7 +1778,11 @@ export default function CalorieTracker({ isDarkMode }) {
                       Fat (g)
                     </Text>
                     <TextInput
-                      style={[styles.input, isDarkMode ? {} : styles.inputLight]}
+                      style={[
+                        styles.input,
+                        styles.accentInput,
+                        isDarkMode ? {} : styles.inputLight,
+                      ]}
                       placeholder="e.g. 2"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
