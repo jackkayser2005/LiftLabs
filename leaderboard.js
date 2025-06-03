@@ -15,12 +15,15 @@ const Leaderboard = ({ isDarkMode = true }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [totalParticipants, setTotalParticipants] = useState(0);
+  const [userRank, setUserRank] = useState(null);
+  const [userPercentile, setUserPercentile] = useState(null);
 
   const fetchLeaderboard = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, count, error } = await supabase
         .from('profile')
-        .select('first_name, exp, level')
+        .select('user_id, first_name, exp, level', { count: 'exact' })
         .order('exp', { ascending: false })
         .limit(100);
 
@@ -37,6 +40,8 @@ const Leaderboard = ({ isDarkMode = true }) => {
       }));
 
       setLeaders(rankedData);
+      setTotalParticipants(count || rankedData.length);
+      await fetchUserStats(count || rankedData.length);
       setError(null);
     } catch (err) {
       console.error('Unexpected error:', err);
@@ -44,6 +49,39 @@ const Leaderboard = ({ isDarkMode = true }) => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const fetchUserStats = async (participantCount) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profile')
+        .select('exp')
+        .eq('user_id', user.id)
+        .single();
+      if (profileError) throw profileError;
+
+      const userExp = profile?.exp || 0;
+
+      const { count: higherCount, error: higherError } = await supabase
+        .from('profile')
+        .select('exp', { count: 'exact', head: true })
+        .gt('exp', userExp);
+      if (higherError) throw higherError;
+
+      const rank = (higherCount || 0) + 1;
+      setUserRank(rank);
+
+      const total = participantCount || totalParticipants || rank;
+      const percentile = total ? (((total - rank) / total) * 100).toFixed(1) : 0;
+      setUserPercentile(percentile);
+    } catch (err) {
+      console.error('Error fetching user stats:', err);
     }
   };
 
@@ -135,9 +173,17 @@ const Leaderboard = ({ isDarkMode = true }) => {
           </Text>
         </View>
         <Text style={[styles.headerSubtitle, !isDarkMode && styles.headerSubtitleLight]}>
-          {leaders.length} Lifters Competing
+          {totalParticipants} Lifters Competing
         </Text>
       </View>
+
+      {userRank && (
+        <View style={[styles.userStats, !isDarkMode && styles.userStatsLight]}>
+          <Text style={[styles.userStatsText, !isDarkMode && styles.userStatsTextLight]}>
+            Rank #{userRank} • Top {userPercentile}%
+          </Text>
+        </View>
+      )}
 
       {/* Top 3 Podium */}
       {leaders.length >= 3 && (
@@ -352,6 +398,29 @@ const styles = {
   },
   headerSubtitleLight: {
     color: '#6c757d',
+  },
+
+  userStats: {
+    backgroundColor: '#111',
+    marginHorizontal: 15,
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  userStatsLight: {
+    backgroundColor: '#fff',
+    borderColor: '#e0e0e0',
+  },
+  userStatsText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  userStatsTextLight: {
+    color: '#1a1a1a',
   },
 
   // Podium
