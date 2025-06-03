@@ -1,6 +1,6 @@
 // ProfileScreen.js
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -43,6 +43,12 @@ export default function ProfileScreen({
   const [workoutDates, setWorkoutDates] = useState(new Set());
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+
+  // String used to mark today's date in the calendar
+  const todayStr = useMemo(
+    () => new Date().toISOString().split('T')[0],
+    []
+  );
 
   const isGuest = session?.user?.app_metadata?.guest;
   const userId = session?.user?.id;
@@ -267,7 +273,11 @@ export default function ProfileScreen({
     return weeks;
   }
 
-  const weeks = generateCalendar(calendarYear, calendarMonth);
+  // Recompute calendar weeks only when month or year changes
+  const weeks = useMemo(
+    () => generateCalendar(calendarYear, calendarMonth),
+    [calendarYear, calendarMonth]
+  );
 
   /** ---------------------- Main Render ---------------------- */
   return (
@@ -422,9 +432,38 @@ export default function ProfileScreen({
                   </Text>
                 </View>
               )}
-            </View>
+              </View>
 
-            {/* ───────── Workout Calendar (moved above Settings) ───────── */}
+              {/* ───────── Level & Experience Section ───────── */}
+              <View style={styles.levelSection}>
+                <Text style={[styles.sectionTitle, !dark && styles.sectionTitleLight]}> 
+                  Level & Experience
+                </Text>
+                <View style={[styles.levelCard, !dark && styles.levelCardLight]}>
+                  <View style={styles.levelInfo}>
+                    <Text style={styles.levelNumber}>{profile.level}</Text>
+                    <Text style={styles.rankText}>
+                      {profile.level < 5
+                        ? 'Rookie'
+                        : profile.level < 10
+                        ? 'Intermediate'
+                        : 'Pro'}
+                    </Text>
+                  </View>
+                  <View
+                    style={[styles.progressBar, !dark && styles.progressBarLight]}
+                  >
+                    <View
+                      style={[styles.progressFill, { width: `${progressPct}%` }]}
+                    />
+                  </View>
+                  <Text style={[styles.progressText, !dark && styles.progressTextLight]}>
+                    {profile.exp} / {xpNeeded} XP
+                  </Text>
+                </View>
+              </View>
+
+              {/* ───────── Workout Calendar (moved above Settings) ───────── */}
             <View
               style={[
                 calendarStyles.calendarContainer,
@@ -500,6 +539,7 @@ export default function ProfileScreen({
                     }
                     const dateStr = dayObj.toISOString().split('T')[0]; // "YYYY-MM-DD"
                     const didWorkout = workoutDates.has(dateStr);
+                    const isToday = dateStr === todayStr;
                     return (
                       <View
                         key={di}
@@ -508,11 +548,17 @@ export default function ProfileScreen({
                           {
                             backgroundColor: didWorkout
                               ? dark
-                                ? '#4caf50'
-                                : '#1abc9c'
+                                ? '#2ecc71'
+                                : '#4caf50'
                               : 'transparent',
-                            borderWidth: didWorkout ? 0 : 1,
-                            borderColor: dark ? '#444' : '#ccc',
+                            borderWidth: 1,
+                            borderColor: isToday
+                              ? dark
+                                ? '#fff'
+                                : '#000'
+                              : dark
+                              ? '#444'
+                              : '#ccc',
                           },
                         ]}
                       >
@@ -580,34 +626,6 @@ export default function ProfileScreen({
               </TouchableOpacity>
             </View>
 
-            {/* ───────── Level & Experience Section ───────── */}
-            <View style={styles.levelSection}>
-              <Text style={[styles.sectionTitle, !dark && styles.sectionTitleLight]}>
-                Level & Experience
-              </Text>
-              <View style={[styles.levelCard, !dark && styles.levelCardLight]}>
-                <View style={styles.levelInfo}>
-                  <Text style={styles.levelNumber}>{profile.level}</Text>
-                  <Text style={styles.rankText}>
-                    {profile.level < 5
-                      ? 'Rookie'
-                      : profile.level < 10
-                      ? 'Intermediate'
-                      : 'Pro'}
-                  </Text>
-                </View>
-                <View
-                  style={[styles.progressBar, !dark && styles.progressBarLight]}
-                >
-                  <View
-                    style={[styles.progressFill, { width: `${progressPct}%` }]}
-                  />
-                </View>
-                <Text style={[styles.progressText, !dark && styles.progressTextLight]}>
-                  {profile.exp} / {xpNeeded} XP
-                </Text>
-              </View>
-            </View>
           </>
         )}
 
