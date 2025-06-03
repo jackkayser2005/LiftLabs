@@ -1,296 +1,334 @@
 import React, { useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  StyleSheet,
   Image,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
+  StyleSheet,
 } from 'react-native';
 import { supabase } from './supabaseClient';
-import { fetchMyProfile } from './lib/profile';
-
-const { width, height } = Dimensions.get('window');
+import { Ionicons } from '@expo/vector-icons';
 
 export default function SignInScreen({ onSuccess, switchToSignUp }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [focusedInput, setFocusedInput] = useState(null);
+  const [guestLoading, setGuestLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(''); // inline error
 
- const handleSignIn = async () => {
-  if (!email || !password)
-    return Alert.alert('Missing info', 'Fill both fields');
+  const handleSignIn = async () => {
+    if (!email.trim() || !password) {
+      setErrorMsg('Fill in both email and password');
+      return;
+    }
 
-  setLoading(true);
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  setLoading(false);
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const { data: authData, error: authError } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password: password,
+        });
+      if (authError) throw authError;
 
-  if (error) return Alert.alert('Login error', error.message);
+      const { session, user } = authData;
 
-  try {
-    const profile = await fetchMyProfile();
-    // Optionally: stash this in context/state
-    console.log('👤 profile', profile);
-  } catch (err) {
-    console.warn('profile fetch failed', err.message);
-  }
-  onSuccess();   // bubble up to <App />
-};
+      // try to fetch/create profile quietly
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('profile')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (fetchError) {
+        await supabase.from('profile').upsert(
+          {
+            user_id: user.id,
+            email: user.email,
+          },
+          {
+            onConflict: 'user_id',
+          }
+        );
+      }
+
+      onSuccess(session);
+    } catch (error) {
+      setErrorMsg(error.message || 'Could not sign in');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGuestLogin = () => {
+    setGuestLoading(true);
+    setTimeout(() => {
+      setGuestLoading(false);
+      onSuccess({ user: { app_metadata: { guest: true } } });
+    }, 800);
+  };
+
+  const handleForgotPassword = () => {
+    setErrorMsg('Password reset coming soon');
+  };
 
   return (
-    <KeyboardAvoidingView
-      style={s.outer}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <LinearGradient
+      colors={['#0a0f0d', '#142723', '#0a0f0d']}
+      style={styles.background}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
     >
-      <View style={s.centerer}>
-        {/* Logo + Glow */}
-        <View style={s.logoGlowWrap}>
-          <View style={s.logoGlow} />
-          <Image
-            source={require('/images/logo.png')}
-            style={s.logo}
-            resizeMode="contain"
-          />
-        </View>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+      >
+        {/* Logo */}
+        <Image
+          source={require('./images/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
 
         {/* Card */}
-        <View style={s.card}>
-          <Text style={s.title}>Welcome Back</Text>
-          <Text style={s.subtitle}>Sign in to your account</Text>
+        <View style={styles.card}>
+          <Text style={styles.heading}>Sign In</Text>
 
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>Email</Text>
+          {errorMsg ? (
+            <Text style={styles.errorText}>{errorMsg}</Text>
+          ) : null}
+
+          {/* Email Input */}
+          <View style={styles.inputWrapper}>
+            <Ionicons
+              name="mail-outline"
+              size={20}
+              color="#637d77"
+              style={styles.icon}
+            />
             <TextInput
-              placeholder="you@email.com"
-              placeholderTextColor="#91afaa"
-              style={[
-                s.input,
-                focusedInput === 'email' && s.inputFocused,
-              ]}
-              value={email}
-              onChangeText={setEmail}
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="#637d77"
               autoCapitalize="none"
               keyboardType="email-address"
-              onFocus={() => setFocusedInput('email')}
-              onBlur={() => setFocusedInput(null)}
-              textContentType="emailAddress"
+              value={email}
+              onChangeText={(txt) => {
+                setEmail(txt);
+                if (errorMsg) setErrorMsg('');
+              }}
+              editable={!loading && !guestLoading}
             />
           </View>
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>Password</Text>
-            <View style={s.inputPassWrap}>
-              <TextInput
-                placeholder="Your password"
-                placeholderTextColor="#91afaa"
-                style={[
-                  s.input,
-                  s.inputPass,
-                  focusedInput === 'password' && s.inputFocused,
-                ]}
-                value={password}
-                onChangeText={setPassword}
-                autoCapitalize="none"
-                secureTextEntry={!showPass}
-                onFocus={() => setFocusedInput('password')}
-                onBlur={() => setFocusedInput(null)}
-                textContentType="password"
+
+          {/* Password Input */}
+          <View style={[styles.inputWrapper, { marginTop: 12 }]}>
+            <Ionicons
+              name="key-outline"
+              size={20}
+              color="#637d77"
+              style={styles.icon}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#637d77"
+              secureTextEntry={!showPass}
+              value={password}
+              onChangeText={(txt) => {
+                setPassword(txt);
+                if (errorMsg) setErrorMsg('');
+              }}
+              editable={!loading && !guestLoading}
+            />
+            <TouchableOpacity
+              onPress={() => setShowPass((v) => !v)}
+              disabled={loading || guestLoading}
+              style={styles.eyeIcon}
+            >
+              <Ionicons
+                name={showPass ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color="#637d77"
               />
-              <TouchableOpacity
-                style={s.eyeBtn}
-                onPress={() => setShowPass((v) => !v)}
-                hitSlop={8}
-              >
-                <Text style={{ color: '#1abc9c', fontSize: 17 }}>
-                  {showPass ? '🙈' : '👁️'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           </View>
 
+          {/* Sign In Button */}
           <TouchableOpacity
-            style={[s.button, loading && s.buttonDisabled]}
+            style={[
+              styles.button,
+              (loading || guestLoading) && styles.buttonDisabled,
+            ]}
             onPress={handleSignIn}
-            disabled={loading}
-            activeOpacity={0.82}
+            disabled={loading || guestLoading}
           >
             {loading ? (
-              <ActivityIndicator color="#0a0e0d" />
+              <ActivityIndicator color="#0a0f0d" />
             ) : (
-              <Text style={s.buttonText}>Sign In</Text>
+              <Text style={styles.buttonText}>Sign In</Text>
             )}
           </TouchableOpacity>
 
-          <View style={s.footer}>
-            <TouchableOpacity onPress={switchToSignUp} activeOpacity={0.7}>
-              <Text style={s.linkText}>
-                Don&apos;t have an account? <Text style={s.linkBold}>Sign up</Text>
-              </Text>
+          {/* Continue as Guest */}
+          <TouchableOpacity
+            style={[
+              styles.guestButton,
+              (loading || guestLoading) && styles.buttonDisabled,
+            ]}
+            onPress={handleGuestLogin}
+            disabled={loading || guestLoading}
+          >
+            {guestLoading ? (
+              <ActivityIndicator color="#1abc9c" />
+            ) : (
+              <Text style={styles.guestText}>Continue as Guest</Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Forgot Password */}
+          <TouchableOpacity
+            onPress={handleForgotPassword}
+            disabled={loading || guestLoading}
+            style={{ marginTop: 12 }}
+          >
+            <Text style={styles.forgotText}>Forgot your password?</Text>
+          </TouchableOpacity>
+
+          {/* Switch to Sign Up */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Need an account?</Text>
+            <TouchableOpacity
+              onPress={switchToSignUp}
+              disabled={loading || guestLoading}
+            >
+              <Text style={styles.footerLink}> Sign up</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
-const s = StyleSheet.create({
-  outer: {
+const styles = StyleSheet.create({
+  background: {
     flex: 1,
-    backgroundColor: '#091511',
   },
-  centerer: {
+  container: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: height * 0.95,
-    paddingVertical: 16,
-  },
-  logoGlowWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 30,
-  },
-  logoGlow: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: '#1abc9c55',
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.8,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 10,
-    opacity: 0.90,
+    paddingHorizontal: 24,
   },
   logo: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    borderWidth: 2,
-    borderColor: '#1abc9c44',
-    zIndex: 2,
+    width: 100,
+    height: 100,
+    marginBottom: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1abc9c',
+    backgroundColor: '#142723',
   },
   card: {
-    width: width * 0.9,
-    maxWidth: 420,
-    paddingHorizontal: 26,
-    paddingVertical: 32,
-    backgroundColor: 'rgba(10,14,13,0.96)',
-    borderRadius: 32,
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.14,
+    width: '100%',
+    backgroundColor: 'rgba(18, 27, 24, 0.9)',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
     shadowRadius: 12,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 7,
-    alignItems: 'stretch',
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -1,
-    color: '#fff',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 15.5,
-    color: '#7fe0d4',
-    marginBottom: 26,
-    textAlign: 'center',
-    fontWeight: '400',
-  },
-  inputGroup: {
-    marginBottom: 22,
-  },
-  inputLabel: {
-    color: '#a6cfc8',
-    marginBottom: 7,
+  heading: {
+    fontSize: 24,
     fontWeight: '700',
-    fontSize: 14,
-    letterSpacing: 0.22,
-    marginLeft: 3,
-  },
-  input: {
-    height: 50,
-    backgroundColor: '#17312a',
-    borderWidth: 1.2,
-    borderColor: '#133124',
-    borderRadius: 12,
-    paddingHorizontal: 18,
     color: '#fff',
-    fontWeight: '500',
-    fontSize: 16.3,
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.10,
-    shadowOffset: { width: 0, height: 2 },
-    marginBottom: 0,
+    textAlign: 'center',
+    marginBottom: 24,
   },
-  inputFocused: {
-    borderColor: '#1abc9c',
-    backgroundColor: '#152d27',
-    shadowOpacity: 0.20,
-    shadowRadius: 8,
+  errorText: {
+    color: '#e74c3c',
+    textAlign: 'center',
+    marginBottom: 12,
   },
-  inputPassWrap: {
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    position: 'relative',
+    backgroundColor: '#1a2821',
+    borderRadius: 12,
+    paddingHorizontal: 12,
   },
-  inputPass: {
+  icon: {
+    marginRight: 8,
+  },
+  input: {
     flex: 1,
-    paddingRight: 36,
+    height: 44,
+    color: '#fff',
+    fontSize: 16,
+    paddingVertical: 0,
   },
-  eyeBtn: {
-    position: 'absolute',
-    right: 11,
-    top: 0,
-    height: 50,
-    width: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+  eyeIcon: {
+    padding: 4,
   },
   button: {
     backgroundColor: '#1abc9c',
-    height: 52,
-    borderRadius: 14,
-    justifyContent: 'center',
+    borderRadius: 12,
+    height: 48,
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 3,
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.23,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    justifyContent: 'center',
+    marginTop: 24,
   },
   buttonDisabled: {
-    opacity: 0.68,
+    opacity: 0.6,
   },
   buttonText: {
-    color: '#091511',
-    fontWeight: '800',
-    fontSize: 16.5,
-    letterSpacing: 0.32,
+    color: '#0a0f0d',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  guestButton: {
+    borderWidth: 1.5,
+    borderColor: '#1abc9c',
+    borderRadius: 12,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  guestText: {
+    color: '#1abc9c',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  forgotText: {
+    color: '#8bb5ad',
+    fontSize: 14,
+    textAlign: 'center',
+    textDecorationLine: 'underline',
   },
   footer: {
-    marginTop: 20,
-    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
   },
-  linkText: {
-    fontSize: 16,
-    color: '#91afaa',
-    textAlign: 'center',
+  footerText: {
+    color: '#7a9590',
+    fontSize: 14,
   },
-  linkBold: {
+  footerLink: {
     color: '#1abc9c',
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -1,331 +1,453 @@
 import React, { useState, useEffect, useRef } from 'react';
 import 'node-libs-react-native/globals';
 import 'react-native-url-polyfill/auto';
+import StrengthTraining from './StrengthTraining';
 
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Image,
   Modal,
   ActivityIndicator,
-  StyleSheet,
+  Animated,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import * as FileSystem from 'expo-file-system';
 import { VideoView as Video } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
-import styles from './styles';
+
+import { LinearGradient } from 'expo-linear-gradient';
+const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
+
+import SignInScreen from './SignInScreen';
+import SignUpScreen from './SignUpScreen';
+import ProfileScreen from './ProfileScreen';
 import BodyFatCalculator from './body-fat';
+import CalorieTracker from './CalorieTracker';
+import Leaderboard from './leaderboard';
+
+import styles from './styles';      // your existing global styles
+import popUpStyles from './popUpStyles';  // new banner styles
 import { supabase } from './supabaseClient';
 
-// --- AUTH SCREENS ---
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [view, setView] = useState('signIn');
+  const [loading, setLoading] = useState(true);
 
-function SignInScreen({ onSignUp, onSuccess }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // welcome banner state
+  const [showWelcome, setShowWelcome] = useState(false);
+  const welcomeAnim = useRef(new Animated.Value(0)).current;
 
-  async function handleSignIn() {
-    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) Alert.alert('Sign in error', error.message);
-    else onSuccess(data.session);
-  }
+  // keep Supabase auth state in sync
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+    });
 
-  return (
-    <View style={authStyles.container}>
-      <Text style={authStyles.title}>Sign In</Text>
-      <TextInput style={authStyles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" />
-      <TextInput style={authStyles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
-      <TouchableOpacity style={authStyles.button} onPress={handleSignIn}>
-        <Text style={authStyles.buttonText}>Sign In</Text>
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onSignUp}>
-        <Text style={authStyles.link}>Need an account? Sign Up</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setLoading(false);
+    });
 
-function SignUpScreen({ onSignIn, onSuccess }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
-  async function handleSignUp() {
-    const { error, data } = await supabase.auth.signUp({ email, password });
-    if (error) Alert.alert('Sign up error', error.message);
-    else {
-      Alert.alert('Signed up!', 'Check your email for confirmation.');
-      if (data.session) onSuccess(data.session);
+  // trigger welcome banner whenever session becomes non-null
+  useEffect(() => {
+    if (session) {
+      setShowWelcome(true);
+      Animated.timing(welcomeAnim, {
+        toValue: 1,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
+
+      const timer = setTimeout(() => {
+        Animated.timing(welcomeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => setShowWelcome(false));
+      }, 4500);
+
+      return () => clearTimeout(timer);
     }
+  }, [session]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (!session) {
+    return view === 'signIn' ? (
+      <SignInScreen
+        onSuccess={(sess) => {
+          setSession(sess);
+        }}
+        switchToSignUp={() => setView('signUp')}
+      />
+    ) : (
+      <SignUpScreen
+        onSuccess={() => {
+          setView('signIn');
+        }}
+        switchToSignIn={() => setView('signIn')}
+      />
+    );
   }
 
   return (
-    <View style={authStyles.container}>
-      <Text style={authStyles.title}>Sign Up</Text>
-      <TextInput style={authStyles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" />
-      <TextInput style={authStyles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
-      <TouchableOpacity style={authStyles.button} onPress={handleSignUp}>
-        <Text style={authStyles.buttonText}>Sign Up</Text>
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onSignIn}>
-        <Text style={authStyles.link}>Already have an account? Sign In</Text>
-      </TouchableOpacity>
-    </View>
+    <MainApp
+      session={session}
+      setSession={setSession}
+      showWelcome={showWelcome}
+      setShowWelcome={setShowWelcome}
+      welcomeAnim={welcomeAnim}
+    />
   );
 }
 
-const authStyles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 20 },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginBottom: 10 },
-  button: { backgroundColor: '#1abc9c', borderRadius: 8, padding: 12, alignItems: 'center' },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
-  link: { color: '#1abc9c', marginTop: 12, textAlign: 'center' },
-});
-
-// --- MAIN APP ---
-
-function MainApp({ session }) {
-  // --- (Your entire app's main logic below, no auth logic needed) ---
+function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim }) {
   const MAX_VIDEOS = 20;
   const [currentScreen, setCurrentScreen] = useState('home');
   const [videos, setVideos] = useState([]);
   const [detail, setDetail] = useState(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [lastTappedTab, setLastTappedTab] = useState(null);
-  const videoPlayer = useRef(null);
+  const [lastTab, setLastTab] = useState(null);
 
-  // Permissions on mount
+  // track streak from calorie_logs
+  const [streak, setStreak] = useState(0);
+  const videoRef = useRef(null);
+
   useEffect(() => {
-    (async () => {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Sorry, we need camera roll permissions to make this work!');
-      }
-    })();
-  }, []);
+    async function fetchStreak() {
+      try {
+        const userId = session.user.id;
+        let { data: latestLog, error } = await supabase
+          .from('calorie_logs')
+          .select('streak_days')
+          .eq('user_id', userId)
+          .order('log_date', { ascending: false })
+          .limit(1)
+          .single();
 
-  // Video selection logic (add upload to supabase here later)
-  const selectVideo = async () => {
-    if (videos.length >= MAX_VIDEOS) {
-      Alert.alert('Limit reached', `You can only keep ${MAX_VIDEOS} videos right now. Delete one first.`);
-      return;
+        if (error && error.code !== 'PGRST116') {
+          setStreak(0);
+          return;
+        }
+        if (latestLog) {
+          setStreak(latestLog.streak_days || 0);
+        } else {
+          setStreak(0);
+        }
+      } catch {
+        setStreak(0);
+      }
     }
+
+    if (session && session.user) {
+      fetchStreak();
+    } else {
+      setStreak(0);
+    }
+  }, [session]);
+
+  const selectVideo = async () => {
+    if (videos.length >= MAX_VIDEOS) return;
+
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (perm.status !== 'granted') {
-        Alert.alert('Permission needed', 'We need camera-roll permission to pick a video!');
-        return;
-      }
+      if (perm.status !== 'granted') return;
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['videos'],
         aspect: [16, 9],
         quality: 0.7,
       });
+
       if (!result.canceled && result.assets?.length) {
         const asset = result.assets[0];
-        const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 0 });
+        const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+          time: 0,
+        });
         const score = Math.floor(Math.random() * 41) + 60;
-        const critique = score > 85 ? 'Great depth & knee tracking!' : 'Work on hip depth and keeping knees out.';
-        setVideos(prev => [
+        const critique =
+          score > 85
+            ? 'Great depth & knee tracking!'
+            : 'Work on hip depth and keeping knees out.';
+        const localID = Date.now().toString();
+        setVideos((prev) => [
           ...prev,
-          { id: Date.now().toString(), uri: asset.uri, thumb: thumbUri, score, critique },
+          { id: localID, uri: asset.uri, thumb: thumbUri, score, critique },
         ]);
-        // TODO: Upload video info to Supabase table
+
+        const userId = session.user.id;
+        const fileExt = asset.uri.split('.').pop();
+        const fileName = `${userId}/${localID}.${fileExt}`;
+        const videoData = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const { error: uploadError } = await supabase.storage
+          .from('videos')
+          .upload(fileName, Buffer.from(videoData, 'base64'), {
+            contentType: 'video/mp4',
+          });
+        if (uploadError) return;
+
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from('videos').getPublicUrl(fileName);
+
+        await supabase.from('videos').insert([
+          {
+            user_id: userId,
+            video_url: publicUrl,
+            thumb_url: thumbUri,
+            score,
+            critique,
+          },
+        ]);
       }
-    } catch (err) {
-      console.log(err);
-      Alert.alert('Error', 'Failed to select video');
+    } catch {
+      // silent fail
     }
   };
 
-  // Enhanced tab navigation
-  const handleTabPress = (screen) => {
-    if (screen === 'home') {
-      if (currentScreen === 'home' && lastTappedTab === 'home') {
+  const pressTab = (tab) => {
+    if (tab === 'home') {
+      if (currentScreen === 'home' && lastTab === 'home') {
         selectVideo();
       } else {
         setCurrentScreen('home');
-        setLastTappedTab('home');
       }
     } else {
-      setCurrentScreen(screen);
-      setLastTappedTab(screen);
+      setCurrentScreen(tab);
     }
+    setLastTab(tab);
   };
 
-  // Video tap/hold handlers with enhanced options
-  const handleVideoPress = (video) => {
-    Alert.alert(
-      'Video Options',
-      'What would you like to do?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Analyze & Watch',
-          onPress: () => setDetail(video),
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => handleVideoDelete(video),
-        },
-      ]
-    );
-  };
+  const deleteVideo = (v) => setVideos((prev) => prev.filter((x) => x.id !== v.id));
 
-  const handleVideoDelete = (video) => {
-    Alert.alert('Delete video?', 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => setVideos(prev => prev.filter((v) => v.id !== video.id)),
-      },
-    ]);
-  };
-
-  const closeDetail = () => setDetail(null);
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
-
-  // NAVBAR
-  const renderNavbar = () => (
+  const Navbar = () => (
     <View style={[styles.navbar, !isDarkMode && styles.navbarLight]}>
-      <TouchableOpacity style={styles.navItem} onPress={() => handleTabPress('calories')}>
-        <Ionicons name="calculator" size={24} color={currentScreen === 'calories' ? '#1abc9c' : (isDarkMode ? '#666' : '#999')} />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.navItem} onPress={() => handleTabPress('body')}>
-        <Ionicons name="body" size={24} color={currentScreen === 'body' ? '#1abc9c' : (isDarkMode ? '#666' : '#999')} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.navMainBtn}
-        onPress={() => handleTabPress('home')}>
-        <Ionicons name="add" size={32} color="#fff" />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.navItem} onPress={() => handleTabPress('strength')}>
-        <Ionicons name="barbell" size={24} color={currentScreen === 'strength' ? '#1abc9c' : (isDarkMode ? '#666' : '#999')} />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.navItem} onPress={() => handleTabPress('leaderboard')}>
-        <Ionicons name="trophy" size={24} color={currentScreen === 'leaderboard' ? '#1abc9c' : (isDarkMode ? '#666' : '#999')} />
-      </TouchableOpacity>
+      {[
+        ['calculator', 'calories'],
+        ['body', 'body'],
+        ['add', 'home', true],
+        ['barbell', 'strength'],
+        ['trophy', 'leaderboard'],
+      ].map(([icon, screen, main]) => (
+        <TouchableOpacity
+          key={screen}
+          style={main ? styles.navMainBtn : styles.navItem}
+          onPress={() => pressTab(screen)}
+        >
+          <Ionicons
+            name={icon}
+            size={main ? 32 : 24}
+            color={
+              screen === currentScreen
+                ? '#1abc9c'
+                : isDarkMode
+                ? '#666'
+                : '#999'
+            }
+          />
+        </TouchableOpacity>
+      ))}
     </View>
   );
 
-  // HEADER
-  const renderHeader = () => (
+  const Header = () => (
     <View style={[styles.header, !isDarkMode && styles.headerLight]}>
-      <Text style={[styles.headerTitle, !isDarkMode && styles.headerTitleLight]}>LiftLabs</Text>
-      <TouchableOpacity style={styles.userBtn} onPress={() => setCurrentScreen('profile')}>
-        <Ionicons name="person-circle" size={32} color="#1abc9c" />
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Image
+          source={require('./images/logo.png')}
+          style={{ width: 24, height: 24, marginRight: 6, borderRadius: 4 }}
+        />
+        <Text
+          style={[styles.headerTitle, !isDarkMode && styles.headerTitleLight]}
+        >
+          LiftLabs
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {/* STREAK DISPLAY */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginRight: 20,
+          }}
+        >
+          <Ionicons name="flame" size={20} color="#1abc9c" />
+          <Text
+            style={{
+              color: isDarkMode ? '#fff' : '#1a1a1a',
+              marginLeft: 4,
+              fontWeight: '600',
+            }}
+          >
+            {streak}-Day
+          </Text>
+        </View>
+
+        {/* PROFILE BUTTON */}
+        <TouchableOpacity onPress={() => setCurrentScreen('profile')}>
+          <Ionicons name="person-circle" size={32} color="#1abc9c" />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
-  const renderBackButton = () => (
-    <TouchableOpacity style={styles.backBtn} onPress={() => setCurrentScreen('home')}>
+  const BackBtn = () => (
+    <TouchableOpacity
+      style={styles.backBtn}
+      onPress={() => setCurrentScreen('home')}
+    >
       <Ionicons name="arrow-back" size={24} color="#1abc9c" />
       <Text style={styles.backText}>Back</Text>
     </TouchableOpacity>
   );
 
-  // Tooltip Component
-  const renderTooltip = () => (
-    showTooltip && (
-      <Modal transparent animationType="fade" visible onRequestClose={() => setShowTooltip(false)}>
-        <TouchableOpacity
-          style={styles.tooltipOverlay}
-          activeOpacity={1}
-          onPress={() => setShowTooltip(false)}
-        >
-          <View style={[styles.tooltipContainer, !isDarkMode && styles.tooltipContainerLight]}>
-            <View style={styles.tooltipHeader}>
-              <Ionicons name="information-circle" size={24} color="#1abc9c" />
-              <Text style={[styles.tooltipTitle, !isDarkMode && styles.tooltipTitleLight]}>
-                Video Analysis Guide
-              </Text>
-            </View>
-            <Text style={[styles.tooltipText, !isDarkMode && styles.tooltipTextLight]}>
-              📱 <Text style={styles.tooltipBold}>Tap a video</Text> to see analysis options
-            </Text>
-            <Text style={[styles.tooltipText, !isDarkMode && styles.tooltipTextLight]}>
-              🎯 <Text style={styles.tooltipBold}>AI Analysis</Text> scores your form out of 100
-            </Text>
-            <Text style={[styles.tooltipText, !isDarkMode && styles.tooltipTextLight]}>
-              📊 <Text style={styles.tooltipBold}>Green scores (85+)</Text> = Excellent form
-            </Text>
-            <Text style={[styles.tooltipText, !isDarkMode && styles.tooltipTextLight]}>
-              🔄 <Text style={styles.tooltipBold}>Replay feature</Text> helps you study technique
-            </Text>
-            <Text style={[styles.tooltipText, !isDarkMode && styles.tooltipTextLight]}>
-              🗑️ <Text style={styles.tooltipBold}>Delete option</Text> removes unwanted videos
-            </Text>
-            <TouchableOpacity
-              style={styles.tooltipCloseBtn}
-              onPress={() => setShowTooltip(false)}
-            >
-              <Text style={styles.tooltipCloseText}>Got it!</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    )
-  );
-
-  // HOME
-  const renderHomeScreen = () => (
+  // ─── Home Screen ───────────────────────────────────────────────────────────────────────────────
+  const Home = () => (
     <View style={[styles.container, !isDarkMode && styles.containerLight]}>
-      {renderHeader()}
+      <Header />
+
+      {/* WELCOME BANNER */}
+      {showWelcome && (
+        <AnimatedGradient
+          colors={['#1abc9c', '#16a085']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[
+            popUpStyles.welcomeBanner,
+            {
+              opacity: welcomeAnim,
+              transform: [
+                {
+                  translateY: welcomeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-100, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* rocket icon just for flair */}
+          <Ionicons name="rocket" size={24} color="#fff" style={{ marginRight: 8 }} />
+
+          <Text style={popUpStyles.welcomeText}>
+            Hey there, {session.user.email.split('@')[0]}! Let’s crush today’s session!
+          </Text>
+
+          <TouchableOpacity
+            onPress={() => {
+              Animated.timing(welcomeAnim, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+              }).start(() => setShowWelcome(false));
+            }}
+            style={popUpStyles.welcomeClose}
+          >
+            <Ionicons
+              name="close"
+              size={20}
+              style={popUpStyles.welcomeCloseIcon}
+            />
+          </TouchableOpacity>
+        </AnimatedGradient>
+      )}
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {videos.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="videocam-outline" size={64} color={isDarkMode ? '#666' : '#999'} />
-            <Text style={[styles.emptyText, !isDarkMode && styles.emptyTextLight]}>No videos yet</Text>
-            <Text style={[styles.emptySubtext, !isDarkMode && styles.emptySubtextLight]}>
+            <Ionicons
+              name="videocam-outline"
+              size={64}
+              color={isDarkMode ? '#666' : '#999'}
+            />
+            <Text
+              style={[styles.emptyText, !isDarkMode && styles.emptyTextLight]}
+            >
+              No videos yet
+            </Text>
+            <Text
+              style={[
+                styles.emptySubtext,
+                !isDarkMode && styles.emptySubtextLight,
+              ]}
+            >
               Tap the + button to add your first workout video
             </Text>
-            <TouchableOpacity
-              style={styles.getStartedBtn}
-              onPress={() => setShowTooltip(true)}
-            >
-              <Ionicons name="help-circle-outline" size={20} color="#1abc9c" />
-              <Text style={styles.getStartedText}>How it works</Text>
-            </TouchableOpacity>
           </View>
         ) : (
           <>
-            <View style={[styles.tipBanner, !isDarkMode && styles.tipBannerLight]}>
+            <View
+              style={[styles.tipBanner, !isDarkMode && styles.tipBannerLight]}
+            >
               <TouchableOpacity
                 style={styles.tipContent}
                 onPress={() => setShowTooltip(true)}
               >
                 <Ionicons name="information-circle" size={16} color="#1abc9c" />
-                <Text style={[styles.tipText, !isDarkMode && styles.tipTextLight]}>
+                <Text
+                  style={[styles.tipText, !isDarkMode && styles.tipTextLight]}
+                >
                   Tap videos for options • Need help?
                 </Text>
               </TouchableOpacity>
             </View>
+
             <View style={styles.videoGrid}>
-              {videos.map((video) => (
+              {videos.map((v) => (
                 <TouchableOpacity
-                  key={video.id}
+                  key={v.id}
                   style={[styles.videoItem, !isDarkMode && styles.videoItemLight]}
-                  onPress={() => handleVideoPress(video)}
+                  onPress={() =>
+                    // skip Alert.alert—open detail immediately
+                    setDetail(v)
+                  }
                 >
-                  <Image source={{ uri: video.thumb }} style={styles.videoThumbnail} resizeMode="cover" />
+                  <Image
+                    source={{ uri: v.thumb }}
+                    style={styles.videoThumbnail}
+                  />
                   <View style={styles.videoOverlay}>
-                    <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.85)" />
+                    <Ionicons
+                      name="play-circle"
+                      size={32}
+                      color="rgba(255,255,255,0.85)"
+                    />
                   </View>
-                  <View style={[
-                    styles.scoreBadge,
-                    video.score >= 85 ? styles.scoreBadgeExcellent :
-                      video.score >= 75 ? styles.scoreBadgeGood : styles.scoreBadgeNeedsWork
-                  ]}>
-                    <Text style={styles.scoreText}>{video.score}</Text>
+                  <View
+                    style={[
+                      styles.scoreBadge,
+                      v.score >= 85
+                        ? styles.scoreBadgeExcellent
+                        : v.score >= 75
+                        ? styles.scoreBadgeGood
+                        : styles.scoreBadgeNeedsWork,
+                    ]}
+                  >
+                    <Text style={styles.scoreText}>{v.score}</Text>
                   </View>
                 </TouchableOpacity>
               ))}
@@ -333,31 +455,33 @@ function MainApp({ session }) {
           </>
         )}
       </ScrollView>
-      {renderNavbar()}
-      {renderTooltip()}
-      {/* Video Modal */}
+      <Navbar />
+
       {detail && (
-        <Modal animationType="slide" transparent={false} visible onRequestClose={closeDetail}>
+        <Modal
+          transparent={false}
+          animationType="slide"
+          visible
+          onRequestClose={() => setDetail(null)}
+        >
           <View style={[styles.container, !isDarkMode && styles.containerLight]}>
             <Video
-              ref={videoPlayer}
+              ref={videoRef}
               source={{ uri: detail.uri }}
               style={{ flex: 1 }}
               resizeMode="contain"
               useNativeControls
-              onPlaybackStatusUpdate={async (status) => {
-                if (status.isLoaded === false && status.error) {
-                  const local = `${FileSystem.cacheDirectory}${detail.id}.mp4`;
-                  await FileSystem.copyAsync({ from: detail.uri, to: local });
-                  if (videoPlayer.current) {
-                    videoPlayer.current.setSource({ uri: local });
-                  }
-                }
-              }}
             />
-            <View style={[styles.analysisPanel, !isDarkMode && styles.analysisPanelLight]}>
+            <View
+              style={[
+                styles.analysisPanel,
+                !isDarkMode && styles.analysisPanelLight,
+              ]}
+            >
               <View style={styles.scoreDisplay}>
-                <Text style={[styles.scoreTitle, !isDarkMode && styles.scoreTitleLight]}>
+                <Text
+                  style={[styles.scoreTitle, !isDarkMode && styles.scoreTitleLight]}
+                >
                   Form Analysis
                 </Text>
                 <View style={styles.scoreCircle}>
@@ -365,28 +489,22 @@ function MainApp({ session }) {
                   <Text style={styles.scoreOutOf}>/100</Text>
                 </View>
               </View>
-              <Text style={[styles.critiqueText, !isDarkMode && styles.critiqueTextLight]}>
+              <Text
+                style={[styles.critiqueText, !isDarkMode && styles.critiqueTextLight]}
+              >
                 {detail.critique}
               </Text>
               <View style={styles.actionButtons}>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.replayBtn]}
-                  onPress={async () => {
-                    if (videoPlayer.current) {
-                      try {
-                        await videoPlayer.current.seekTo(0, { toleranceMillis: 100 });
-                      } catch (e) {
-                        console.log('Replay failed', e);
-                      }
-                    }
-                  }}
+                  onPress={() => videoRef.current?.seekTo?.(0)}
                 >
                   <Ionicons name="play-back" size={20} color="#1abc9c" />
                   <Text style={styles.actionBtnText}>Replay</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.closeBtn]}
-                  onPress={closeDetail}
+                  onPress={() => setDetail(null)}
                 >
                   <Text style={styles.actionBtnTextWhite}>Close</Text>
                 </TouchableOpacity>
@@ -398,125 +516,91 @@ function MainApp({ session }) {
     </View>
   );
 
-  // Profile Screen (sign out here)
-  const renderProfileScreen = () => (
+  const Body = () => (
     <View style={[styles.container, !isDarkMode && styles.containerLight]}>
-      {renderHeader()}
-      {renderBackButton()}
-      <ScrollView style={styles.profileContent}>
-        <View style={[styles.profileHeader, !isDarkMode && styles.profileHeaderLight]}>
-          <Ionicons name="person-circle" size={100} color="#1abc9c" />
-          <Text style={[styles.profileName, !isDarkMode && styles.profileNameLight]}>User</Text>
-          <Text style={[styles.profileEmail, !isDarkMode && styles.profileEmailLight]}>
-            {session?.user?.email}
-          </Text>
-        </View>
-        <View style={styles.settingsSection}>
-          <Text style={[styles.sectionTitle, !isDarkMode && styles.sectionTitleLight]}>Settings</Text>
-          <TouchableOpacity
-            style={[styles.settingItem, !isDarkMode && styles.settingItemLight]}
-            onPress={toggleTheme}
-          >
-            <View style={styles.settingLeft}>
-              <Ionicons
-                name={isDarkMode ? "moon" : "sunny"}
-                size={24}
-                color="#1abc9c"
-              />
-              <Text style={[styles.settingText, !isDarkMode && styles.settingTextLight]}>
-                {isDarkMode ? 'Dark Mode' : 'Light Mode'}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#666' : '#999'} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.settingItem, !isDarkMode && styles.settingItemLight]}
-            onPress={async () => {
-              await supabase.auth.signOut();
-            }}
-          >
-            <View style={styles.settingLeft}>
-              <Ionicons name="log-out" size={24} color="#e74c3c" />
-              <Text style={[styles.settingText, { color: '#e74c3c', marginLeft: 15 }]}>
-                Sign Out
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-      {renderNavbar()}
-    </View>
-  );
-
-  // Body Fat Calculator Screen
-  const renderBodyScreen = () => (
-    <View style={[styles.container, !isDarkMode && styles.containerLight]}>
-      {renderHeader()}
-      {renderBackButton()}
+      <Header />
+      <BackBtn />
       <BodyFatCalculator isDarkMode={isDarkMode} />
-      {renderNavbar()}
+      <Navbar />
     </View>
   );
 
-  // Placeholder screens with improved styling
-  const renderPlaceholderScreen = (icon, title) => (
+  const LeaderboardScreen = () => (
     <View style={[styles.container, !isDarkMode && styles.containerLight]}>
-      {renderHeader()}
-      {renderBackButton()}
+      <Header />
+      <BackBtn />
+      <Leaderboard isDarkMode={isDarkMode} />
+      <Navbar />
+    </View>
+  );
+
+  const Placeholder = (icon, title) => (
+    <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+      <Header />
+      <BackBtn />
       <View style={styles.center}>
         <Ionicons name={icon} size={64} color="#1abc9c" />
-        <Text style={[styles.screenTitle, !isDarkMode && styles.screenTitleLight]}>{title}</Text>
-        <Text style={[styles.screenSubtitle, !isDarkMode && styles.screenSubtitleLight]}>Coming Soon</Text>
+        <Text style={[styles.screenTitle, !isDarkMode && styles.screenTitleLight]}>
+          {title}
+        </Text>
+        <Text
+          style={[styles.screenSubtitle, !isDarkMode && styles.screenSubtitleLight]}
+        >
+          Coming Soon
+        </Text>
       </View>
-      {renderNavbar()}
+      <Navbar />
     </View>
   );
 
-  // Router
   switch (currentScreen) {
-    case 'home': return renderHomeScreen();
-    case 'calories': return renderPlaceholderScreen('calculator', 'Calorie Tracker');
-    case 'body': return renderBodyScreen();
-    case 'strength': return renderPlaceholderScreen('barbell', 'Strength Training');
-    case 'leaderboard': return renderPlaceholderScreen('trophy', 'Leaderboard');
-    case 'profile': return renderProfileScreen();
-    default: return renderHomeScreen();
+    case 'home':
+      return <Home />;
+
+    case 'body':
+      return <Body />;
+
+    case 'calories':
+      return (
+        <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+          <Header />
+          <View style={{ flex: 1 }}>
+            <CalorieTracker isDarkMode={isDarkMode} />
+          </View>
+          <Navbar />
+        </View>
+      );
+
+    case 'strength':
+      return (
+        <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+          <Header />
+          <StrengthTraining
+            setCurrentScreen={setCurrentScreen}
+            isDarkMode={isDarkMode}
+          />
+          <Navbar />
+        </View>
+      );
+
+    case 'leaderboard':
+      return <LeaderboardScreen />;
+
+    case 'profile':
+      return (
+        <ProfileScreen
+          session={session}
+          dark={isDarkMode}
+          toggleDark={() => setIsDarkMode((prev) => !prev)}
+          goBack={() => setCurrentScreen('home')}
+          onLogout={async () => {
+            await supabase.auth.signOut();
+            setSession(null);
+          }}
+        />
+      );
+
+    default:
+      return <Home />;
   }
-}
-
-// --- ROOT APP WITH AUTH HANDLING ---
-
-export default function App() {
-  const [session, setSession] = useState(null);
-  const [authView, setAuthView] = useState('signIn');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-    });
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-    return () => {
-      listener?.unsubscribe();
-    };
-  }, []);
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
-  if (!session) {
-    return authView === 'signIn'
-      ? <SignInScreen onSignUp={() => setAuthView('signUp')} onSuccess={setSession} />
-      : <SignUpScreen onSignIn={() => setAuthView('signIn')} onSuccess={setSession} />;
-  }
-
-  return <MainApp session={session} />;
 }

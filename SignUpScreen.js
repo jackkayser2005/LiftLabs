@@ -1,361 +1,313 @@
+//
+// SignUpScreen.js
+//
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  StyleSheet,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  Dimensions,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert,
+         Image, KeyboardAvoidingView, Platform, Dimensions, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from './supabaseClient';
-import { createProfileIfNeeded } from './lib/profile';
 
 const { width, height } = Dimensions.get('window');
 
-export default function SignUpScreen({ switchToSignIn }) {
-  const [email, setEmail]         = useState('');
-  const [password, setPassword]   = useState('');
-  const [confirm, setConfirm]     = useState('');
-  const [loading, setLoading]     = useState(false);
-  const [focusedInput, setFocusedInput] = useState(null);
-  const [showPass, setShowPass]   = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
+export default function SignUpScreen({ onSuccess, switchToSignIn }) {
+  const [firstName, setFirstName]             = useState('');
+  const [email, setEmail]                     = useState('');
+  const [password, setPassword]               = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPass, setShowPass]               = useState(false);
+  const [showConfirm, setShowConfirm]         = useState(false);
+  const [loading, setLoading]                 = useState(false);
 
-  const strong = pwd =>
-    pwd.length >= 8 &&
-    /[A-Z]/.test(pwd) &&
-    /[0-9]/.test(pwd);
+  // We want at least 8 chars, one uppercase, one digit
+  const isPasswordStrong = (pwd) =>
+    pwd.length >= 8 && /[A-Z]/.test(pwd) && /[0-9]/.test(pwd);
 
- const handleSignUp = async () => {
-  if (!strong(password))
-    return Alert.alert(
-      'Weak password',
-      'Use 8+ chars, a number and a capital letter'
-    );
-  if (password !== confirm)
-    return Alert.alert('Passwords do not match');
-
-  setLoading(true);
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  setLoading(false);
-
-  if (error) return Alert.alert('Error', error.message);
-
-  if (data?.user) {
-    try {
-      await createProfileIfNeeded(data.user);
-    } catch (e) {
-      console.warn('Profile creation failed:', e.message);
+  const handleSignUp = async () => {
+    // 1) Basic client‐side validation
+    if (!firstName.trim()) {
+      Alert.alert('Missing Field', 'Please enter your first name');
+      return;
     }
-  }
+    if (!email.trim()) {
+      Alert.alert('Missing Field', 'Please enter your email');
+      return;
+    }
+    if (!isPasswordStrong(password)) {
+      Alert.alert(
+        'Weak Password',
+        'Password must be at least 8 characters, include a number and a capital letter'
+      );
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('Mismatch', 'Passwords do not match');
+      return;
+    }
 
-  Alert.alert(
-    'Verify your email',
-    'A confirmation link was sent – tap it, then log in 👌'
-  );
-  switchToSignIn();
-};
-  
+    setLoading(true);
+    try {
+      // 2) Create user in Supabase Auth
+      // In Supabase v2, signUp returns { data: { user, session }, error }
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email:    email.trim(),
+        password: password,
+      });
+      if (authError) {
+        throw authError;
+      }
+
+      // 3) Insert a new row into the "profiles" table
+      //    We are assuming your table name is "profiles" (plural).
+      //    The RLS policy we created above says "WITH CHECK (id = auth.uid())"
+      //    and "USING (id = auth.uid())", so as long as we pass `id: userId`,
+      //    the row will be inserted.  Note: supabase.auth.signUp() has just created
+      //    the user, so authData.user.id === the newly generated UUID.
+      const userId = authData.user.id;
+
+      const { error: profileError } = await supabase
+        .from('profile')          // ‒‒‒> MAKE SURE this exactly matches your table name
+        .insert([{
+          id:         userId,           // “id” column must match auth.uid()
+          first_name: firstName.trim(),
+          email:      email.trim(),
+          level:      0,                // default starting level
+          exp:        0,                // default starting exp
+          avatar_url: '',               // start blank
+        }]);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      // 4) Tell the user to check their mailbox for the verification email
+      Alert.alert(
+        'Account Created',
+        'A verification email has been sent. Please check your inbox and click the link. Then sign in.',
+        [
+          { text: 'OK', onPress: switchToSignIn }
+        ]
+      );
+    } catch (error) {
+      console.log('SignUp Error →', error);
+      Alert.alert('Sign Up Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={s.outer}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <LinearGradient
+      colors={['#0a0f0d', '#142723', '#0a0f0d']}
+      style={styles.background}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
     >
-      <View style={s.centerer}>
-        {/* Logo */}
-        <View style={s.logoGlowWrap}>
-          <View style={s.logoGlow} />
-          <Image
-            source={require('/images/logo.png')}
-            style={s.logo}
-            resizeMode="contain"
-          />
-        </View>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+      >
+        {/* Logo at the top */}
+        <Image source={require('./images/logo.png')}
+               style={styles.logo}
+               resizeMode="contain" />
 
-        {/* Card */}
-        <View style={s.card}>
-          <Text style={s.title}>Create Account</Text>
-          <Text style={s.subtitle}>Join us and start your journey</Text>
+        {/* Card Container */}
+        <View style={styles.card}>
+          <Text style={styles.heading}>Create Account</Text>
 
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>Email</Text>
+          {/* First Name */}
+          <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
+            <Ionicons name="person-outline" size={20} color="#637d77" style={styles.icon} />
             <TextInput
-              placeholder="you@email.com"
-              placeholderTextColor="#91afaa"
-              style={[
-                s.input,
-                focusedInput === 'email' && s.inputFocused,
-              ]}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              onFocus={() => setFocusedInput('email')}
-              onBlur={() => setFocusedInput(null)}
-              textContentType="emailAddress"
+              style={styles.input}
+              placeholder="First Name"
+              placeholderTextColor="#637d77"
+              autoCapitalize="words"
+              value={firstName}
+              onChangeText={setFirstName}
+              editable={!loading}
             />
           </View>
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>Password</Text>
-            <View style={s.inputPassWrap}>
-              <TextInput
-                placeholder="Create a strong password"
-                placeholderTextColor="#91afaa"
-                style={[
-                  s.input,
-                  s.inputPass,
-                  focusedInput === 'password' && s.inputFocused,
-                ]}
-                value={password}
-                onChangeText={setPassword}
-                autoCapitalize="none"
-                secureTextEntry={!showPass}
-                onFocus={() => setFocusedInput('password')}
-                onBlur={() => setFocusedInput(null)}
-                textContentType="newPassword"
-              />
-              <TouchableOpacity
-                style={s.eyeBtn}
-                onPress={() => setShowPass(v => !v)}
-                hitSlop={8}
-              >
-                <Text style={{ color: '#1abc9c', fontSize: 17 }}>
-                  {showPass ? '🙈' : '👁️'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>Confirm Password</Text>
-            <View style={s.inputPassWrap}>
-              <TextInput
-                placeholder="Repeat password"
-                placeholderTextColor="#91afaa"
-                style={[
-                  s.input,
-                  s.inputPass,
-                  focusedInput === 'confirm' && s.inputFocused,
-                ]}
-                value={confirm}
-                onChangeText={setConfirm}
-                autoCapitalize="none"
-                secureTextEntry={!showConfirm}
-                onFocus={() => setFocusedInput('confirm')}
-                onBlur={() => setFocusedInput(null)}
-                textContentType="password"
-              />
-              <TouchableOpacity
-                style={s.eyeBtn}
-                onPress={() => setShowConfirm(v => !v)}
-                hitSlop={8}
-              >
-                <Text style={{ color: '#1abc9c', fontSize: 17 }}>
-                  {showConfirm ? '🙈' : '👁️'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+
+          {/* Email */}
+          <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
+            <Ionicons name="mail-outline" size={20} color="#637d77" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="#637d77"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+              editable={!loading}
+            />
           </View>
 
+          {/* Password */}
+          <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
+            <Ionicons name="lock-closed-outline" size={20} color="#637d77" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#637d77"
+              secureTextEntry={!showPass}
+              value={password}
+              onChangeText={setPassword}
+              editable={!loading}
+            />
+            <TouchableOpacity
+              onPress={() => setShowPass(v => !v)}
+              disabled={loading}
+              style={styles.eyeIcon}
+            >
+              <Ionicons
+                name={showPass ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color="#637d77"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Confirm Password */}
+          <View style={[styles.inputWrapper, { marginBottom: 24 }]}>
+            <Ionicons name="lock-closed-outline" size={20} color="#637d77" style={styles.icon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Confirm Password"
+              placeholderTextColor="#637d77"
+              secureTextEntry={!showConfirm}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              editable={!loading}
+            />
+            <TouchableOpacity
+              onPress={() => setShowConfirm(v => !v)}
+              disabled={loading}
+              style={styles.eyeIcon}
+            >
+              <Ionicons
+                name={showConfirm ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color="#637d77"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Sign Up Button */}
           <TouchableOpacity
-            style={[s.button, loading && s.buttonDisabled]}
+            style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleSignUp}
             disabled={loading}
-            activeOpacity={0.82}
           >
             {loading ? (
-              <ActivityIndicator color="#0a0e0d" />
+              <ActivityIndicator color="#0a0f0d" />
             ) : (
-              <Text style={s.buttonText}>Sign Up</Text>
+              <Text style={styles.buttonText}>Sign Up</Text>
             )}
           </TouchableOpacity>
 
-          <Text style={s.termsText}>
-            By creating an account, you agree to our{' '}
-            <Text style={s.termsLink}>Terms</Text> &{' '}
-            <Text style={s.termsLink}>Privacy</Text>
-          </Text>
-
-          <View style={s.footer}>
-            <TouchableOpacity onPress={switchToSignIn} activeOpacity={0.7}>
-              <Text style={s.linkText}>
-                Already have an account? <Text style={s.linkBold}>Sign in</Text>
-              </Text>
+          {/* “Already have an account?” */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Already have an account?</Text>
+            <TouchableOpacity onPress={switchToSignIn} disabled={loading}>
+              <Text style={styles.footerLink}> Sign In</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
-const s = StyleSheet.create({
-  outer: {
+
+const styles = StyleSheet.create({
+  background: {
     flex: 1,
-    backgroundColor: '#091511',
   },
-  centerer: {
+  container: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: height * 0.95,
-    paddingVertical: 16,
-  },
-  logoGlowWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 30,
-  },
-  logoGlow: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: '#1abc9c55',
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.8,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 10,
-    opacity: 0.90,
+    paddingHorizontal: 24,
   },
   logo: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    borderWidth: 2,
-    borderColor: '#1abc9c44',
-    zIndex: 2,
+    width: 100,
+    height: 100,
+    marginBottom: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1abc9c',
+    backgroundColor: '#142723',
   },
   card: {
-    width: width * 0.9,
-    maxWidth: 420,
-    paddingHorizontal: 26,
-    paddingVertical: 32,
-    backgroundColor: 'rgba(10,14,13,0.96)',
-    borderRadius: 32,
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.14,
+    width: '100%',
+    backgroundColor: 'rgba(18, 27, 24, 0.9)',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
     shadowRadius: 12,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 7,
-    alignItems: 'stretch',
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -1,
-    color: '#fff',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 15.5,
-    color: '#7fe0d4',
-    marginBottom: 26,
-    textAlign: 'center',
-    fontWeight: '400',
-  },
-  inputGroup: {
-    marginBottom: 22,
-  },
-  inputLabel: {
-    color: '#a6cfc8',
-    marginBottom: 7,
+  heading: {
+    fontSize: 24,
     fontWeight: '700',
-    fontSize: 14,
-    letterSpacing: 0.22,
-    marginLeft: 3,
-  },
-  input: {
-    height: 50,
-    backgroundColor: '#17312a',
-    borderWidth: 1.2,
-    borderColor: '#133124',
-    borderRadius: 12,
-    paddingHorizontal: 18,
     color: '#fff',
-    fontWeight: '500',
-    fontSize: 16.3,
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.10,
-    shadowOffset: { width: 0, height: 2 },
-    marginBottom: 0,
+    textAlign: 'center',
+    marginBottom: 24,
   },
-  inputFocused: {
-    borderColor: '#1abc9c',
-    backgroundColor: '#152d27',
-    shadowOpacity: 0.20,
-    shadowRadius: 8,
-  },
-  inputPassWrap: {
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    position: 'relative',
+    backgroundColor: '#1a2821',
+    borderRadius: 12,
+    paddingHorizontal: 12,
   },
-  inputPass: {
+  icon: {
+    marginRight: 8,
+  },
+  input: {
     flex: 1,
-    paddingRight: 36,
+    height: 44,
+    color: '#fff',
+    fontSize: 16,
+    paddingVertical: 0,
   },
-  eyeBtn: {
-    position: 'absolute',
-    right: 11,
-    top: 0,
-    height: 50,
-    width: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+  eyeIcon: {
+    padding: 4,
   },
   button: {
     backgroundColor: '#1abc9c',
-    height: 52,
-    borderRadius: 14,
-    justifyContent: 'center',
+    borderRadius: 12,
+    height: 48,
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 3,
-    shadowColor: '#1abc9c',
-    shadowOpacity: 0.23,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    justifyContent: 'center',
+    marginTop: 12,
   },
   buttonDisabled: {
-    opacity: 0.68,
+    opacity: 0.6,
   },
   buttonText: {
-    color: '#091511',
-    fontWeight: '800',
-    fontSize: 16.5,
-    letterSpacing: 0.32,
-  },
-  termsText: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: 13,
-    marginBottom: 2,
-  },
-  termsLink: {
-    color: '#1abc9c',
-    fontWeight: '500',
+    color: '#0a0f0d',
+    fontSize: 16,
+    fontWeight: '700',
   },
   footer: {
-    marginTop: 13,
-    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
   },
-  linkText: {
-    fontSize: 16,
-    color: '#91afaa',
-    textAlign: 'center',
+  footerText: {
+    color: '#7a9590',
+    fontSize: 14,
   },
-  linkBold: {
+  footerLink: {
     color: '#1abc9c',
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
