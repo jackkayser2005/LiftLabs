@@ -102,13 +102,13 @@ export default function ProfileScreen({
         // 5) Fetch all workout dates from "strength_logs"
         const { data: logs, error: logsErr } = await supabase
           .from('strength_logs')
-          .select('date_perform')
+          .select('date_performed')
           .eq('user_id', userId);
         if (!logsErr && logs) {
           const datesSet = new Set(
             logs.map((l) => {
-              // date_perform might be a string like "2025-06-02T00:00:00.000Z"
-              const d = l.date_perform;
+              // date_performed might be a string like "2025-06-02T00:00:00.000Z"
+              const d = l.date_performed;
               if (typeof d === 'string') {
                 return d.split('T')[0];
               } else {
@@ -549,13 +549,11 @@ export default function ProfileScreen({
                             backgroundColor: didWorkout
                               ? dark
                                 ? '#2ecc71'
-                                : '#4caf50'
+                                : '#c8e6c9'
                               : 'transparent',
-                            borderWidth: 1,
+                            borderWidth: isToday ? 2 : 1,
                             borderColor: isToday
-                              ? dark
-                                ? '#fff'
-                                : '#000'
+                              ? '#e67e22'
                               : dark
                               ? '#444'
                               : '#ccc',
@@ -565,6 +563,7 @@ export default function ProfileScreen({
                         <Text
                           style={[
                             calendarStyles.dayText,
+                            isToday && calendarStyles.todayText,
                             { color: dark ? '#fff' : '#000' },
                           ]}
                         >
@@ -669,14 +668,17 @@ const calendarStyles = StyleSheet.create({
     marginTop: 6,
   },
   dayBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
   dayText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  todayText: {
+    fontWeight: '700',
   },
 });
