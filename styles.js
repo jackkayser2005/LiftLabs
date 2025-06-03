@@ -1748,7 +1748,7 @@ genderTextLight: {
   videoTabs: {
     flexDirection: 'row',
     marginHorizontal: 20,
-    marginTop: 10,
+    marginTop: 20,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#222',
@@ -1760,6 +1760,8 @@ genderTextLight: {
     flex: 1,
     paddingVertical: 12,
     alignItems: 'center',
+    borderRadius: 12,
+    marginHorizontal: 2,
   },
   videoTabBtnActive: {
     backgroundColor: '#1abc9c',
@@ -1773,13 +1775,12 @@ genderTextLight: {
     color: '#fff',
   },
 
-  uploadOverlay: {
-    position: 'absolute',
-    top: 100,
-    left: 0,
-    right: 0,
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    zIndex: 20,
   },
   uploadText: {
     marginTop: 8,
