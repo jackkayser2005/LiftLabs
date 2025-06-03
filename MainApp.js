@@ -29,8 +29,32 @@ export default function MainApp({ session, dark, toggleDark }) {
   const [detail, setDetail]               = useState(null);
   const [showTooltip, setShowTooltip]     = useState(false);
   const [lastTab, setLastTab]             = useState(null);
+  const [avatarUrl, setAvatarUrl]         = useState('');
 
   const videoRef = useRef(null);
+
+  useEffect(() => {
+    async function fetchAvatar() {
+      try {
+        const { data, error } = await supabase
+          .from('profile')
+          .select('avatar_url')
+          .eq('id', session.user.id)
+          .single();
+        if (!error && data) {
+          setAvatarUrl(data.avatar_url || '');
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (session && session.user) {
+      fetchAvatar();
+    } else {
+      setAvatarUrl('');
+    }
+  }, [session]);
 
   // Helper: pick a video, upload storage → insert row into `videos`
   const selectVideo = async () => {
@@ -49,7 +73,7 @@ export default function MainApp({ session, dark, toggleDark }) {
         );
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['videos'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         aspect: [16, 9],
         quality: 0.7,
       });
@@ -171,7 +195,14 @@ export default function MainApp({ session, dark, toggleDark }) {
         </Text>
       </View>
       <TouchableOpacity onPress={() => setCurrentScreen('profile')}>
-        <Ionicons name="person-circle" size={32} color="#1abc9c" />
+        {avatarUrl ? (
+          <Image
+            source={{ uri: avatarUrl }}
+            style={{ width: 32, height: 32, borderRadius: 16 }}
+          />
+        ) : (
+          <Ionicons name="person-circle" size={32} color="#1abc9c" />
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -350,6 +381,7 @@ export default function MainApp({ session, dark, toggleDark }) {
           onLogout={async () => {
             await supabase.auth.signOut();
           }}
+          onAvatarUpdate={setAvatarUrl}
         />
       );
     default:

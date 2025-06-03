@@ -82,6 +82,29 @@ export default function App() {
     }
   }, [session]);
 
+  useEffect(() => {
+    async function fetchAvatar() {
+      try {
+        const { data, error } = await supabase
+          .from('profile')
+          .select('avatar_url')
+          .eq('id', session.user.id)
+          .single();
+        if (!error && data) {
+          setAvatarUrl(data.avatar_url || '');
+        }
+      } catch {
+        // ignore fetch errors
+      }
+    }
+
+    if (session && session.user) {
+      fetchAvatar();
+    } else {
+      setAvatarUrl('');
+    }
+  }, [session]);
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -127,6 +150,7 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [lastTab, setLastTab] = useState(null);
+  const [avatarUrl, setAvatarUrl] = useState('');
 
   // track streak from calorie_logs
   const [streak, setStreak] = useState(0);
@@ -173,7 +197,7 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
       if (perm.status !== 'granted') return;
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['videos'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         aspect: [16, 9],
         quality: 0.7,
       });
@@ -308,7 +332,14 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
 
         {/* PROFILE BUTTON */}
         <TouchableOpacity onPress={() => setCurrentScreen('profile')}>
-          <Ionicons name="person-circle" size={32} color="#1abc9c" />
+          {avatarUrl ? (
+            <Image
+              source={{ uri: avatarUrl }}
+              style={{ width: 32, height: 32, borderRadius: 16 }}
+            />
+          ) : (
+            <Ionicons name="person-circle" size={32} color="#1abc9c" />
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -597,6 +628,7 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
             await supabase.auth.signOut();
             setSession(null);
           }}
+          onAvatarUpdate={setAvatarUrl}
         />
       );
 

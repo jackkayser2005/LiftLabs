@@ -24,6 +24,7 @@ export default function ProfileScreen({
   toggleDark,
   goBack,
   onLogout,
+  onAvatarUpdate = () => {},
 }) {
   /** ------------------------- Local state ------------------------- */
   const [loading, setLoading] = useState(true);
@@ -120,12 +121,14 @@ export default function ProfileScreen({
         }
 
         // 6) Store profile, counts, and latestBfp into local state
-        setProfile({
+        const profileData = {
           first_name: p?.first_name ?? '',
           level: p?.level ?? 0,
           exp: p?.exp ?? 0,
           avatar_url: p?.avatar_url ?? '',
-        });
+        };
+        setProfile(profileData);
+        onAvatarUpdate(profileData.avatar_url);
         setVideoCnt(vCnt ?? 0);
         setWorkoutCnt(wCnt ?? 0);
         setLatestBfp(bfpEntry ?? null);
@@ -188,6 +191,7 @@ export default function ProfileScreen({
 
       // Reflect the new avatar URL in local state
       setProfile((prev) => ({ ...prev, avatar_url: publicUrl }));
+      onAvatarUpdate(publicUrl);
     } catch (e) {
       console.warn('Avatar error:', e.message);
       Alert.alert('Avatar', 'Failed to update avatar.');
