@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -64,50 +65,50 @@ export default function ProfileScreen({
 
     (async () => {
       try {
-        // 1) Fetch the single row from "profile"
-        const { data: p, error: pErr } = await supabase
-          .from('profile')
-          .select('first_name, level, exp, avatar_url')
-          .eq('id', userId)
-          .single();
+        const [
+          { data: p, error: pErr },
+          { count: vCnt, error: vErr },
+          { count: wCnt, error: wErr },
+          { data: bfpEntry, error: bfpErr },
+          { data: logs, error: logsErr },
+        ] = await Promise.all([
+          supabase
+            .from('profile')
+            .select('first_name, level, exp, avatar_url')
+            .eq('id', userId)
+            .single(),
+          supabase
+            .from('videos')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId),
+          supabase
+            .from('strength_logs')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId),
+          supabase
+            .from('body_fat_entries')
+            .select('body_fat_percentage, created_at')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single(),
+          supabase
+            .from('strength_logs')
+            .select('date_performed')
+            .eq('user_id', userId),
+        ]);
+
         if (pErr) throw pErr;
-
-        // 2) Count how many videos belong to this user
-        const { count: vCnt, error: vErr } = await supabase
-          .from('videos')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', userId);
         if (vErr) throw vErr;
-
-        // 3) Count how many strength logs (workouts) this user has
-        const { count: wCnt, error: wErr } = await supabase
-          .from('strength_logs')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', userId);
         if (wErr) throw wErr;
-
-        // 4) Fetch the latest body fat entry for this user
-        const { data: bfpEntry, error: bfpErr } = await supabase
-          .from('body_fat_entries')
-          .select('body_fat_percentage, created_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
         if (bfpErr && bfpErr.code !== 'PGRST116') {
           // PGRST116 means “no rows found”—ignore that
           throw bfpErr;
         }
 
-        // 5) Fetch all workout dates from "strength_logs"
-        const { data: logs, error: logsErr } = await supabase
-          .from('strength_logs')
-          .select('date_performed')
-          .eq('user_id', userId);
         if (!logsErr && logs) {
           const datesSet = new Set(
             logs.map((l) => {
-              // date_performed might be a string like "2025-06-02T00:00:00.000Z"
               const d = l.date_performed;
               if (typeof d === 'string') {
                 return d.split('T')[0];
@@ -160,15 +161,21 @@ export default function ProfileScreen({
       const fileName = `${userId}/avatar.${ext}`;
 
       setUploading(true);
-      // Read file as Base64
-      const b64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
 
-      // Upload (upsert) to the "avatars" bucket
+      let fileData;
+      if (Platform.OS === 'web') {
+        const response = await fetch(uri);
+        fileData = await response.blob();
+      } else {
+        const b64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        fileData = Buffer.from(b64, 'base64');
+      }
+
       const { error: upErr } = await supabase.storage
         .from('avatars')
-        .upload(fileName, Buffer.from(b64, 'base64'), {
+        .upload(fileName, fileData, {
           contentType: `image/${ext}`,
           upsert: true,
         });
