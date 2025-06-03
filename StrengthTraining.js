@@ -62,7 +62,8 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
   // “Flash banner” for success/error messages
   const [flashMessage, setFlashMessage] = useState('');
   const [flashBg, setFlashBg] = useState('#1abc9c'); // green by default
-  const flashAnim = useRef(new Animated.Value(-60)).current; // banner height: 60
+  const [flashType, setFlashType] = useState('success');
+  const flashAnim = useRef(new Animated.Value(-80)).current; // banner height
 
   // “+250 EXP” pop-up
   const [showExpPopup, setShowExpPopup] = useState(false);
@@ -71,6 +72,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
   // ─── FlashBanner Helpers ─────────────────────────────────────────────────────────
   const showMessage = (msg, type = 'success') => {
     // type: 'success' (green) or 'error' (red)
+    setFlashType(type);
     setFlashBg(type === 'success' ? '#1abc9c' : '#e74c3c');
     setFlashMessage(msg);
     Animated.timing(flashAnim, {
@@ -82,7 +84,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
       // Hide after 2s
       setTimeout(() => {
         Animated.timing(flashAnim, {
-          toValue: -60,
+          toValue: -80,
           duration: 300,
           easing: Easing.in(Easing.ease),
           useNativeDriver: true,
@@ -572,10 +574,22 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
         <Animated.View
           style={[
             localStyles.flashBanner,
-            { backgroundColor: flashBg, transform: [{ translateY: flashAnim }] },
+            { transform: [{ translateY: flashAnim }] },
           ]}
         >
-          <Text style={localStyles.flashText}>{flashMessage}</Text>
+          <View style={[localStyles.flashContent, { backgroundColor: flashBg }]}>
+            <Ionicons
+              name={
+                flashType === 'success'
+                  ? 'checkmark-circle-outline'
+                  : 'alert-circle-outline'
+              }
+              size={22}
+              color="#fff"
+              style={{ marginRight: 8 }}
+            />
+            <Text style={localStyles.flashText}>{flashMessage}</Text>
+          </View>
         </Animated.View>
       )}
 
@@ -1378,13 +1392,26 @@ const localStyles = StyleSheet.create({
   // Flash banner at top
   flashBanner: {
     position: 'absolute',
-    top: 0,
+    top: 20,
     left: 0,
     right: 0,
     height: 60,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 20,
+    paddingHorizontal: 20,
+  },
+  flashContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
   flashText: {
     color: '#fff',
@@ -1401,13 +1428,16 @@ const localStyles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 30,
   },
   expPopupCard: {
-    width: width * 0.75,
+    width: '100%',
     backgroundColor: '#1f1f1f',
     borderRadius: 14,
     padding: 24,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
@@ -1424,8 +1454,9 @@ const localStyles = StyleSheet.create({
   expPopupButton: {
     backgroundColor: '#1abc9c',
     borderRadius: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 24,
+    alignSelf: 'stretch',
     shadowColor: '#1abc9c',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -1436,5 +1467,6 @@ const localStyles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
   },
 });
