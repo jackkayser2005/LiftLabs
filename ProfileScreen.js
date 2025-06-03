@@ -196,45 +196,6 @@ export default function ProfileScreen({
     }
   };
 
-  /** ---------------------- Early exits + loading spinners ---------------------- */
-  if (!session?.user) {
-    return (
-      <View style={[styles.center, { backgroundColor: dark ? '#0a0f0d' : '#fff' }]}>
-        <Ionicons
-          name="alert-circle-outline"
-          size={64}
-          color={dark ? '#666' : '#999'}
-        />
-        <Text style={[styles.screenTitle, !dark && styles.screenTitleLight]}>
-          No User Found
-        </Text>
-      </View>
-    );
-  }
-  if (loading) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: dark ? '#0a0f0d' : '#fff',
-        }}
-      >
-        <ActivityIndicator size="large" color="#1abc9c" />
-      </View>
-    );
-  }
-
-  /** ---------------------- Derive Display Name ---------------------- */
-  const displayName =
-    profile.first_name?.trim() ||
-    session.user.user_metadata?.first_name ||
-    session.user.email.split('@')[0];
-
-  // XP progress bar
-  const xpNeeded = 1000;
-  const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
 
   /** ---------------------- Helpers for Calendar ---------------------- */
   const monthNames = [
@@ -278,6 +239,46 @@ export default function ProfileScreen({
     () => generateCalendar(calendarYear, calendarMonth),
     [calendarYear, calendarMonth]
   );
+
+  /** ---------------------- Early exits + loading spinners ---------------------- */
+  if (!session?.user) {
+    return (
+      <View style={[styles.center, { backgroundColor: dark ? '#0a0f0d' : '#fff' }]}>
+        <Ionicons
+          name="alert-circle-outline"
+          size={64}
+          color={dark ? '#666' : '#999'}
+        />
+        <Text style={[styles.screenTitle, !dark && styles.screenTitleLight]}>
+          No User Found
+        </Text>
+      </View>
+    );
+  }
+  if (loading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: dark ? '#0a0f0d' : '#fff',
+        }}
+      >
+        <ActivityIndicator size="large" color="#1abc9c" />
+      </View>
+    );
+  }
+
+  /** ---------------------- Derive Display Name ---------------------- */
+  const displayName =
+    profile.first_name?.trim() ||
+    session.user.user_metadata?.first_name ||
+    session.user.email.split('@')[0];
+
+  // XP progress bar
+  const xpNeeded = 1000;
+  const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
 
   /** ---------------------- Main Render ---------------------- */
   return (
