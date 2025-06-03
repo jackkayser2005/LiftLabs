@@ -131,29 +131,42 @@ export default function MainApp({ session, dark, toggleDark }) {
   const deleteVideo = (v) =>
     setVideos((prev) => prev.filter((x) => x.id !== v.id));
 
+  const tabs = [
+    { icon: 'calculator', screen: 'calories', label: 'Calories' },
+    { icon: 'body', screen: 'body', label: 'Body' },
+    { icon: 'add', screen: 'home', main: true },
+    { icon: 'barbell', screen: 'strength', label: 'Strength' },
+    { icon: 'trophy', screen: 'leaderboard', label: 'Top' },
+  ];
+
   const Navbar = () => (
     <View style={[styles.navbar, !dark && styles.navbarLight]}>
-      {[
-        ['calculator', 'calories'],
-        ['body', 'body'],
-        ['add', 'home', true],
-        ['barbell', 'strength'],
-        ['trophy', 'leaderboard'],
-      ].map(([icon, screen, main]) => (
+      {tabs.map(({ icon, screen, label, main }) => (
         <TouchableOpacity
           key={screen}
-          style={main ? styles.navMainBtn : styles.navItem}
+          style={[
+            main ? styles.navMainBtn : styles.navItem,
+            !main && currentScreen === screen && styles.navItemActive,
+          ]}
           onPress={() => pressTab(screen)}
         >
           <Ionicons
             name={icon}
             size={main ? 32 : 24}
             color={
-              screen === currentScreen
-                ? '#1abc9c'
-                : dark ? '#666' : '#999'
+              screen === currentScreen ? '#1abc9c' : dark ? '#666' : '#999'
             }
           />
+          {!main && (
+            <Text
+              style={[
+                styles.navLabel,
+                screen === currentScreen && styles.navLabelActive,
+              ]}
+            >
+              {label}
+            </Text>
+          )}
         </TouchableOpacity>
       ))}
     </View>
