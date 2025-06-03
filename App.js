@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import * as FileSystem from 'expo-file-system';
 import { VideoView as Video } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -85,6 +84,13 @@ export default function App() {
     }
   }, [session]);
 
+
+
+
+
+
+
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -126,6 +132,7 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   const MAX_VIDEOS = 20;
   const [currentScreen, setCurrentScreen] = useState('home');
   const [videos, setVideos] = useState([]);
+  const [loadingVideos, setLoadingVideos] = useState(true);
   const [detail, setDetail] = useState(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -170,6 +177,34 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
     }
   }, [session]);
 
+  useEffect(() => {
+    async function loadVideos() {
+      try {
+        setLoadingVideos(true);
+        const { data, error } = await supabase
+          .from('videos')
+          .select('id, storage_url, thumb_url, score, critique')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false })
+          .limit(MAX_VIDEOS);
+        if (!error && data) {
+          const mapped = data.map((v) => ({
+            id: v.id.toString(),
+            uri: v.storage_url,
+            thumb: v.thumb_url,
+            score: v.score,
+            critique: v.critique,
+          }));
+          setVideos(mapped);
+        }
+      } finally {
+        setLoadingVideos(false);
+      }
+    }
+
+    loadVideos();
+  }, []);
+
   const selectVideo = async () => {
     if (videos.length >= MAX_VIDEOS) return;
 
@@ -203,12 +238,11 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         const fileExt = asset.uri.split('.').pop();
         const fileName = `${userId}/${localID}.${fileExt}`;
         setUploading(true);
-        const videoData = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
         const { error: uploadError } = await supabase.storage
           .from('videos')
-          .upload(fileName, Buffer.from(videoData, 'base64'), {
+          .upload(fileName, blob, {
             contentType: 'video/mp4',
           });
         if (uploadError) {
@@ -410,10 +444,12 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         </TouchableOpacity>
       </View>
 
-      {uploading && (
-        <View style={styles.uploadOverlay}>
+      {(uploading || loadingVideos) && (
+        <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#1abc9c" />
-          <Text style={styles.uploadText}>Uploading...</Text>
+          <Text style={styles.uploadText}>
+            {uploading ? 'Uploading...' : 'Loading...'}
+          </Text>
         </View>
       )}
 
