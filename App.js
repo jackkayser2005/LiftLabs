@@ -29,12 +29,13 @@ import ProfileScreen from './ProfileScreen';
 import BodyFatCalculator from './body-fat';
 import CalorieTracker from './CalorieTracker';
 import Leaderboard from './leaderboard';
+import RealTimeVideo from './RealTimeVideo';
 
 import styles from './styles';      // your existing global styles
 import popUpStyles from './popUpStyles';  // new banner styles
 import { supabase } from './supabaseClient';
 
-const LIVE_WORKOUT_ENABLED = false;
+const LIVE_WORKOUT_ENABLED = true;
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -398,11 +399,14 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.videoTabBtn, videoTab === 'live' && styles.videoTabBtnActive]}
-          onPress={() =>
-            LIVE_WORKOUT_ENABLED
-              ? setVideoTab('live')
-              : Alert.alert('Premium Feature', 'Real-time analysis is available for Pro users.')
-          }
+          onPress={() => {
+            if (LIVE_WORKOUT_ENABLED) {
+              setVideoTab('live');
+              setCurrentScreen('realtime');
+            } else {
+              Alert.alert('Premium Feature', 'Real-time analysis is available for Pro users.');
+            }
+          }}
         >
           <Text style={videoTab === 'live' ? styles.videoTabTextActive : styles.videoTabText}>
             Live Workout
@@ -549,6 +553,16 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
                   <Text style={styles.actionBtnText}>Replay</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  style={[styles.actionBtn, styles.liveBtn]}
+                  onPress={() => {
+                    setDetail(null);
+                    setCurrentScreen('realtime');
+                  }}
+                >
+                  <Ionicons name="videocam" size={20} color="#1abc9c" />
+                  <Text style={styles.actionBtnText}>Live</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[styles.actionBtn, styles.closeBtn]}
                   onPress={() => setDetail(null)}
                 >
@@ -645,6 +659,9 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
           }}
         />
       );
+
+    case 'realtime':
+      return <RealTimeVideo goBack={() => setCurrentScreen('home')} />;
 
     default:
       return <Home />;

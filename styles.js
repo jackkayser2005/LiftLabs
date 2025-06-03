@@ -332,6 +332,11 @@ export default StyleSheet.create({
     borderWidth: 2,
     borderColor: '#1abc9c',
   },
+  liveBtn: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 2,
+    borderColor: '#1abc9c',
+  },
   closeBtn: {
     backgroundColor: '#1abc9c',
   },
