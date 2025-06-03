@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  Alert,
   Modal,
   ActivityIndicator,
   Animated,
@@ -32,6 +33,8 @@ import Leaderboard from './leaderboard';
 import styles from './styles';      // your existing global styles
 import popUpStyles from './popUpStyles';  // new banner styles
 import { supabase } from './supabaseClient';
+
+const LIVE_WORKOUT_ENABLED = false;
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -127,6 +130,8 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [lastTab, setLastTab] = useState(null);
+  const [videoTab, setVideoTab] = useState('upload');
+  const [uploading, setUploading] = useState(false);
 
   // track streak from calorie_logs
   const [streak, setStreak] = useState(0);
@@ -197,6 +202,7 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         const userId = session.user.id;
         const fileExt = asset.uri.split('.').pop();
         const fileName = `${userId}/${localID}.${fileExt}`;
+        setUploading(true);
         const videoData = await FileSystem.readAsStringAsync(asset.uri, {
           encoding: FileSystem.EncodingType.Base64,
         });
@@ -205,7 +211,10 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
           .upload(fileName, Buffer.from(videoData, 'base64'), {
             contentType: 'video/mp4',
           });
-        if (uploadError) return;
+        if (uploadError) {
+          setUploading(false);
+          return;
+        }
 
         const {
           data: { publicUrl },
@@ -214,15 +223,18 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         await supabase.from('videos').insert([
           {
             user_id: userId,
-            video_url: publicUrl,
+            storage_url: publicUrl,
             thumb_url: thumbUri,
+            exercise: '',
             score,
             critique,
           },
         ]);
+        setUploading(false);
       }
     } catch {
       // silent fail
+      setUploading(false);
     }
   };
 
@@ -375,84 +387,118 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
           </TouchableOpacity>
         </AnimatedGradient>
       )}
+      <View style={[styles.videoTabs, !isDarkMode && styles.videoTabsLight]}>
+        <TouchableOpacity
+          style={[styles.videoTabBtn, videoTab === 'upload' && styles.videoTabBtnActive]}
+          onPress={() => setVideoTab('upload')}
+        >
+          <Text style={videoTab === 'upload' ? styles.videoTabTextActive : styles.videoTabText}>
+            Upload Video
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.videoTabBtn, videoTab === 'live' && styles.videoTabBtnActive]}
+          onPress={() =>
+            LIVE_WORKOUT_ENABLED
+              ? setVideoTab('live')
+              : Alert.alert('Premium Feature', 'Real-time analysis is available for Pro users.')
+          }
+        >
+          <Text style={videoTab === 'live' ? styles.videoTabTextActive : styles.videoTabText}>
+            Live Workout
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {uploading && (
+        <View style={styles.uploadOverlay}>
+          <ActivityIndicator size="large" color="#1abc9c" />
+          <Text style={styles.uploadText}>Uploading...</Text>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {videos.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="videocam-outline"
-              size={64}
-              color={isDarkMode ? '#666' : '#999'}
-            />
+        {videoTab === 'upload' ? (
+          videos.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="videocam-outline"
+                size={64}
+                color={isDarkMode ? '#666' : '#999'}
+              />
+              <Text
+                style={[styles.emptyText, !isDarkMode && styles.emptyTextLight]}
+              >
+                No videos yet
+              </Text>
+              <Text
+                style={[
+                  styles.emptySubtext,
+                  !isDarkMode && styles.emptySubtextLight,
+                ]}
+              >
+                Tap the + button to add your first workout video
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View
+                style={[styles.tipBanner, !isDarkMode && styles.tipBannerLight]}
+              >
+                <TouchableOpacity
+                  style={styles.tipContent}
+                  onPress={() => setShowTooltip(true)}
+                >
+                  <Ionicons name="information-circle" size={16} color="#1abc9c" />
+                  <Text
+                    style={[styles.tipText, !isDarkMode && styles.tipTextLight]}
+                  >
+                    Tap videos for options • Need help?
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.videoGrid}>
+                {videos.map((v) => (
+                  <TouchableOpacity
+                    key={v.id}
+                    style={[styles.videoItem, !isDarkMode && styles.videoItemLight]}
+                    onPress={() => setDetail(v)}
+                  >
+                    <Image source={{ uri: v.thumb }} style={styles.videoThumbnail} />
+                    <View style={styles.videoOverlay}>
+                      <Ionicons
+                        name="play-circle"
+                        size={32}
+                        color="rgba(255,255,255,0.85)"
+                      />
+                    </View>
+                    <View
+                      style={[
+                        styles.scoreBadge,
+                        v.score >= 85
+                          ? styles.scoreBadgeExcellent
+                          : v.score >= 75
+                          ? styles.scoreBadgeGood
+                          : styles.scoreBadgeNeedsWork,
+                      ]}
+                    >
+                      <Text style={styles.scoreText}>{v.score}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )
+        ) : (
+          <View style={styles.liveLocked}>
+            <Ionicons name="lock-closed" size={64} color="#1abc9c" />
             <Text
               style={[styles.emptyText, !isDarkMode && styles.emptyTextLight]}
             >
-              No videos yet
-            </Text>
-            <Text
-              style={[
-                styles.emptySubtext,
-                !isDarkMode && styles.emptySubtextLight,
-              ]}
-            >
-              Tap the + button to add your first workout video
+              Real-time analysis coming soon
             </Text>
           </View>
-        ) : (
-          <>
-            <View
-              style={[styles.tipBanner, !isDarkMode && styles.tipBannerLight]}
-            >
-              <TouchableOpacity
-                style={styles.tipContent}
-                onPress={() => setShowTooltip(true)}
-              >
-                <Ionicons name="information-circle" size={16} color="#1abc9c" />
-                <Text
-                  style={[styles.tipText, !isDarkMode && styles.tipTextLight]}
-                >
-                  Tap videos for options • Need help?
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.videoGrid}>
-              {videos.map((v) => (
-                <TouchableOpacity
-                  key={v.id}
-                  style={[styles.videoItem, !isDarkMode && styles.videoItemLight]}
-                  onPress={() =>
-                    // skip Alert.alert—open detail immediately
-                    setDetail(v)
-                  }
-                >
-                  <Image
-                    source={{ uri: v.thumb }}
-                    style={styles.videoThumbnail}
-                  />
-                  <View style={styles.videoOverlay}>
-                    <Ionicons
-                      name="play-circle"
-                      size={32}
-                      color="rgba(255,255,255,0.85)"
-                    />
-                  </View>
-                  <View
-                    style={[
-                      styles.scoreBadge,
-                      v.score >= 85
-                        ? styles.scoreBadgeExcellent
-                        : v.score >= 75
-                        ? styles.scoreBadgeGood
-                        : styles.scoreBadgeNeedsWork,
-                    ]}
-                  >
-                    <Text style={styles.scoreText}>{v.score}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
         )}
       </ScrollView>
       <Navbar />
