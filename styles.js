@@ -1262,6 +1262,26 @@ export default StyleSheet.create({
     fontWeight: '700',
   },
 
+  // --- WEIGHT PROGRESS ---
+  weightSection: {
+    backgroundColor: '#111',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  weightSectionLight: {
+    backgroundColor: '#fff',
+    borderColor: '#e0e0e0',
+  },
+
   // ─── CALORIES OVERVIEW ───
   calorieOverview: {
     backgroundColor: '#111',
