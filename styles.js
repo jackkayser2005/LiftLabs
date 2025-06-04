@@ -628,6 +628,15 @@ export default StyleSheet.create({
   progressTextLight: {
     color: '#6c757d',
   },
+  rankInfo: {
+    color: '#bbb',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  rankInfoLight: {
+    color: '#555',
+  },
 
   // === STATS SECTION ===
   statsSection: {

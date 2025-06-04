@@ -1,6 +1,6 @@
 // ProfileScreen.js
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  Animated,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,6 +40,11 @@ export default function ProfileScreen({
   const [workoutCnt, setWorkoutCnt] = useState(0);
   const [latestBfp, setLatestBfp] = useState(null);
   const [loadingBfp, setLoadingBfp] = useState(true);
+
+  // Rank and progress animation
+  const [userRank, setUserRank] = useState(null);
+  const [userPercentile, setUserPercentile] = useState(null);
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
   // NEW: track workout dates for calendar
   const [workoutDates, setWorkoutDates] = useState(new Set());
@@ -130,6 +136,9 @@ export default function ProfileScreen({
         setVideoCnt(vCnt ?? 0);
         setWorkoutCnt(wCnt ?? 0);
         setLatestBfp(bfpEntry ?? null);
+
+        // Fetch rank based on experience points
+        await fetchUserRank();
       } catch (e) {
         console.warn('Profile fetch error:', e.message);
         Alert.alert('Error', 'Could not load profile or body‐fat data.');
@@ -139,6 +148,46 @@ export default function ProfileScreen({
       }
     })();
   }, [userId, isGuest]);
+
+  /** ---------------------- Fetch user rank ---------------------- */
+  async function fetchUserRank() {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('profile')
+        .select('exp')
+        .eq('user_id', user.id)
+        .single();
+      if (profileError) throw profileError;
+
+      const userExp = profileData?.exp || 0;
+
+      const { count: higherCount, error: higherError } = await supabase
+        .from('profile')
+        .select('exp', { count: 'exact', head: true })
+        .gt('exp', userExp);
+      if (higherError) throw higherError;
+
+      const { count: totalCount, error: totalError } = await supabase
+        .from('profile')
+        .select('exp', { count: 'exact', head: true });
+      if (totalError) throw totalError;
+
+      const rank = (higherCount || 0) + 1;
+      setUserRank(rank);
+
+      const percentile = totalCount
+        ? (((totalCount - rank) / totalCount) * 100).toFixed(1)
+        : 0;
+      setUserPercentile(percentile);
+    } catch (err) {
+      console.error('Error fetching user rank:', err);
+    }
+  }
 
   /** ---------------------- Pick & upload avatar ---------------------- */
   const pickAvatar = async () => {
@@ -278,6 +327,14 @@ export default function ProfileScreen({
   // XP progress bar
   const xpNeeded = 1000;
   const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progressPct,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [progressPct]);
 
 
   /** ---------------------- Main Render ---------------------- */
@@ -454,13 +511,26 @@ export default function ProfileScreen({
                   <View
                     style={[styles.progressBar, !dark && styles.progressBarLight]}
                   >
-                    <View
-                      style={[styles.progressFill, { width: `${progressPct}%` }]}
+                    <Animated.View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: progressAnim.interpolate({
+                            inputRange: [0, 100],
+                            outputRange: ['0%', '100%'],
+                          }),
+                        },
+                      ]}
                     />
                   </View>
                   <Text style={[styles.progressText, !dark && styles.progressTextLight]}>
                     {profile.exp} / {xpNeeded} XP
                   </Text>
+                  {userRank && (
+                    <Text style={[styles.rankInfo, !dark && styles.rankInfoLight]}>
+                      Rank #{userRank} • Top {userPercentile}%
+                    </Text>
+                  )}
                 </View>
               </View>
 
