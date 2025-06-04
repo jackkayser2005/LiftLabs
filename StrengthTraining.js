@@ -21,6 +21,10 @@ import { supabase } from './supabaseClient';
 import { updateDailyStreak } from './lib/streak';
 import styles from './styles';
 
+// Sensible upper bounds to prevent absurd input values
+const MAX_WEIGHT = 1500; // lbs
+const MAX_REPS = 100;
+
 const { width } = Dimensions.get('window');
 
 const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
@@ -220,6 +224,13 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
         showMessage(`Set ${i + 1} must have positive weight & reps.`, 'error');
         return;
       }
+      if (wNum > MAX_WEIGHT || rNum > MAX_REPS) {
+        showMessage(
+          `Set ${i + 1} exceeds ${MAX_WEIGHT} lbs or ${MAX_REPS} reps limit.`,
+          'error'
+        );
+        return;
+      }
     }
 
     // Build pending‐workout entries (one per set), including sessionName
@@ -364,6 +375,13 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
     const rNum = parseInt(calcReps, 10);
     if (isNaN(wNum) || isNaN(rNum) || wNum <= 0 || rNum <= 0) {
       showMessage('Weight and reps must be positive numbers.', 'error');
+      return;
+    }
+    if (wNum > MAX_WEIGHT || rNum > MAX_REPS) {
+      showMessage(
+        `Weight must be ≤${MAX_WEIGHT} lbs and reps ≤${MAX_REPS}.`,
+        'error'
+      );
       return;
     }
     const oneRM = calculateOneRepMax(wNum, rNum);
@@ -703,6 +721,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                 placeholder="e.g. 185"
                 placeholderTextColor={isDarkMode ? '#666' : '#999'}
                 keyboardType="numeric"
+                maxLength={4}
                 value={calcWeight}
                 onChangeText={setCalcWeight}
               />
@@ -728,6 +747,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                 placeholder="e.g. 5"
                 placeholderTextColor={isDarkMode ? '#666' : '#999'}
                 keyboardType="numeric"
+                maxLength={3}
                 value={calcReps}
                 onChangeText={setCalcReps}
               />
@@ -905,6 +925,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                       placeholder="e.g. 185"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
+                      maxLength={4}
                       value={s.weight}
                       onChangeText={(val) => updateSetField(idx, 'weight', val)}
                     />
@@ -929,6 +950,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                       placeholder="e.g. 8"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
+                      maxLength={3}
                       value={s.reps}
                       onChangeText={(val) => updateSetField(idx, 'reps', val)}
                     />
