@@ -18,6 +18,7 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import { supabase } from './supabaseClient';
+import { updateDailyStreak } from './lib/streak';
 import styles from './styles';
 
 const { width } = Dimensions.get('window');
@@ -69,6 +70,10 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
   const [showExpPopup, setShowExpPopup] = useState(false);
   const expFade = useRef(new Animated.Value(0)).current;
 
+  // Streak tracking
+  const [streakDays, setStreakDays] = useState(0);
+  const [streakToday, setStreakToday] = useState(false);
+
   // ─── FlashBanner Helpers ─────────────────────────────────────────────────────────
   const showMessage = (msg, type = 'success') => {
     // type: 'success' (green) or 'error' (red)
@@ -112,6 +117,9 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
           setProfileExp(prof.exp || 0);
           setLastExpDate(prof.last_exp_date);
         }
+
+        // Initialize streak info
+        await fetchStreakInfo(data.session.user.id);
       }
     });
   }, []);
@@ -142,6 +150,21 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
       return acc;
     }, {});
     setGroupedLogs(grouped);
+  };
+
+  const fetchStreakInfo = async (uid) => {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('calorie_logs')
+      .select('log_date, streak_days')
+      .eq('user_id', uid)
+      .order('log_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      setStreakDays(data.streak_days || 0);
+      if (data.log_date === today) setStreakToday(true);
+    }
   };
 
   // ─── 3) Helpers: 1RM & Tips ─────────────────────────────────────────────────────────
@@ -319,6 +342,14 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
           easing: Easing.out(Easing.ease),
           useNativeDriver: true,
         }).start();
+      }
+    }
+
+    if (!streakToday) {
+      const newStreak = await updateDailyStreak(user.id);
+      if (newStreak !== null) {
+        setStreakDays(newStreak);
+        setStreakToday(true);
       }
     }
   };
