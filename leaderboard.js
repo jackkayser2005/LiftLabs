@@ -13,6 +13,7 @@ import { supabase } from './supabaseClient';
 
 const Leaderboard = ({ isDarkMode = true }) => {
   const [leaders, setLeaders] = useState([]);
+  const [strengthLeaders, setStrengthLeaders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -53,6 +54,49 @@ const Leaderboard = ({ isDarkMode = true }) => {
     }
   };
 
+  const fetchStrengthLeaderboard = async () => {
+    try {
+      const { data: logs, error } = await supabase
+        .from('strength_logs')
+        .select('user_id, rep_max')
+        .limit(10000);
+
+      if (error) throw error;
+
+      const maxMap = {};
+      logs.forEach((l) => {
+        const rep = l.rep_max || 0;
+        if (!maxMap[l.user_id] || rep > maxMap[l.user_id]) {
+          maxMap[l.user_id] = rep;
+        }
+      });
+
+      const ids = Object.keys(maxMap);
+      if (ids.length === 0) {
+        setStrengthLeaders([]);
+        return;
+      }
+
+      const { data: profiles, error: profErr } = await supabase
+        .from('profile')
+        .select('user_id, first_name, level')
+        .in('user_id', ids);
+      if (profErr) throw profErr;
+
+      const combined = profiles.map((p) => ({
+        ...p,
+        max_rep_max: maxMap[p.user_id] || 0,
+      }));
+
+      combined.sort((a, b) => b.max_rep_max - a.max_rep_max);
+
+      const ranked = combined.map((u, i) => ({ ...u, rank: i + 1 }));
+      setStrengthLeaders(ranked);
+    } catch (err) {
+      console.error('Error fetching strength leaderboard:', err);
+    }
+  };
+
   const fetchUserStats = async (participantCount) => {
     try {
       const {
@@ -88,11 +132,13 @@ const Leaderboard = ({ isDarkMode = true }) => {
 
   useEffect(() => {
     fetchLeaderboard();
+    fetchStrengthLeaderboard();
   }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchLeaderboard();
+    fetchStrengthLeaderboard();
   };
 
   const getRankIcon = (rank) => {
@@ -173,7 +219,57 @@ const Leaderboard = ({ isDarkMode = true }) => {
     </View>
   );
 
+  const StrengthRow = ({ user, index }) => (
+    <View
+      key={user.user_id || index}
+      style={[
+        styles.tableRow,
+        !isDarkMode && styles.tableRowLight,
+        index === 0 && styles.firstPlaceRow,
+        index === 1 && styles.secondPlaceRow,
+        index === 2 && styles.thirdPlaceRow,
+      ]}
+    >
+      <View style={styles.rankColumn}>
+        <Text
+          style={[
+            styles.rankText,
+            !isDarkMode && styles.rankTextLight,
+            { color: getRankColor(user.rank) },
+          ]}
+        >
+          {getRankIcon(user.rank) || `#${user.rank}`}
+        </Text>
+      </View>
+
+      <View style={styles.userColumn}>
+        <Text style={[styles.userName, !isDarkMode && styles.userNameLight]}>
+          {user.first_name || 'Anonymous'}
+        </Text>
+        <Text style={[styles.userLevel, !isDarkMode && styles.userLevelLight]}>
+          Level {user.level || 1}
+        </Text>
+      </View>
+
+      <View style={styles.xpColumn}>
+        <Text style={[styles.xpText, !isDarkMode && styles.xpTextLight]}>
+          {user.max_rep_max} lbs 1RM
+        </Text>
+        <View style={[styles.xpBar, !isDarkMode && styles.xpBarLight]}>
+          <View
+            style={[
+              styles.xpFill,
+              { width: `${getExpBarWidth(user.max_rep_max, maxStrength)}%` },
+            ]}
+          />
+        </View>
+      </View>
+    </View>
+  );
+
   const maxExp = leaders.length > 0 ? leaders[0].exp : 1;
+  const maxStrength =
+    strengthLeaders.length > 0 ? strengthLeaders[0].max_rep_max : 1;
 
   if (loading) {
     return (
@@ -296,6 +392,21 @@ const Leaderboard = ({ isDarkMode = true }) => {
           <LeaderboardRow key={user.user_id || index} user={user} index={index} />
         ))}
       </View>
+
+      {/* Strength Rankings */}
+      {strengthLeaders.length > 0 && (
+        <View style={[styles.tableContainer, !isDarkMode && styles.tableContainerLight]}>
+          <View style={[styles.tableHeader, !isDarkMode && styles.tableHeaderLight]}>
+            <Text style={[styles.tableHeaderText, !isDarkMode && styles.tableHeaderTextLight]}>
+              Strength Rankings
+            </Text>
+          </View>
+
+          {strengthLeaders.map((user, index) => (
+            <StrengthRow key={user.user_id || index} user={user} index={index} />
+          ))}
+        </View>
+      )}
 
       {/* Footer Info */}
       <View style={[styles.footer, !isDarkMode && styles.footerLight]}>
