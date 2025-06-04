@@ -13,6 +13,7 @@ import {
   Modal,
   ActivityIndicator,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -171,6 +172,8 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   // track streak from calorie_logs
   const [streak, setStreak] = useState(0);
   const videoRef = useRef(null);
+  const indicatorAnim = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     async function fetchStreak() {
@@ -312,6 +315,13 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
       setCurrentScreen(tab);
     }
     setLastTab(tab);
+    const index = tabs.findIndex((t) => t.screen === tab);
+    if (index >= 0) {
+      Animated.spring(indicatorAnim, {
+        toValue: index * tabWidth + tabWidth / 2 - 15,
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
   const deleteVideo = (v) => setVideos((prev) => prev.filter((x) => x.id !== v.id));
@@ -326,8 +336,23 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
     { icon: 'list', screen: 'challenges', label: 'Goals' },
   ];
 
+  const tabWidth = width / tabs.length;
+
+  useEffect(() => {
+    const index = tabs.findIndex((t) => t.screen === currentScreen);
+    if (index >= 0) {
+      indicatorAnim.setValue(index * tabWidth + tabWidth / 2 - 15);
+    }
+  }, [width]);
+
   const Navbar = () => (
     <View style={[styles.navbar, !isDarkMode && styles.navbarLight]}>
+      <Animated.View
+        style={[
+          styles.navIndicator,
+          { transform: [{ translateX: indicatorAnim }] },
+        ]}
+      />
       {tabs.map(({ icon, screen, label, main }) => (
         <TouchableOpacity
           key={screen}
