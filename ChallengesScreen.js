@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import styles from './styles';
 import { updateDailyStreak } from './lib/streak';
@@ -9,7 +10,7 @@ import { supabase } from './supabaseClient';
 const dailySets = [
   [
     { id: 'w1', title: 'Complete a Workout', total: 1 },
-    { id: 'v1', title: 'Upload a Form Video', total: 1 },
+    { id: 'wt1', title: "Log Today's Weight", total: 1, requiresWeightLog: true },
     { id: 'xp1', title: 'Earn 500 XP', total: 1 },
   ],
   [
@@ -31,25 +32,75 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
   const [rewarded, setRewarded] = useState(false);
   const [premiumRewarded, setPremiumRewarded] = useState(false);
 
+  // Date string used for storage key
+  const todayStr = new Date().toISOString().split('T')[0];
+
   useEffect(() => {
-    const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-    const idx = dayOfYear % dailySets.length;
-    setChallenges(dailySets[idx].map((c) => ({ ...c, progress: 0 })));
-    setPremiumChallenges(premiumSet.map((c) => ({ ...c, progress: 0 })));
-  }, []);
+    (async () => {
+      const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+      const idx = dayOfYear % dailySets.length;
+
+      let todays = dailySets[idx].map((c) => ({ ...c, progress: 0 }));
+      const userId = session?.user?.id;
+      if (userId) {
+        const key = `challenges_${userId}_${todayStr}`;
+        const stored = await AsyncStorage.getItem(key);
+        const completed = stored ? JSON.parse(stored) : [];
+        todays = todays.filter((c) => !completed.includes(c.id));
+      }
+      setChallenges(todays);
+      setPremiumChallenges(premiumSet.map((c) => ({ ...c, progress: 0 })));
+    })();
+  }, [session]);
+
+  const checkWeightLogged = async () => {
+    const userId = session?.user?.id;
+    if (!userId) return false;
+    const { data, error } = await supabase
+      .from('weight_logs')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('log_date', todayStr)
+      .maybeSingle();
+    if (error) {
+      console.warn('checkWeightLogged error:', error.message);
+    }
+    return !!data;
+  };
 
   const handleComplete = async (id, premium = false) => {
     const list = premium ? premiumChallenges : challenges;
-    const updated = list.map((c) => (c.id === id ? { ...c, progress: c.total } : c));
+    const challenge = list.find((c) => c.id === id);
+    if (!challenge) return;
+
+    if (challenge.requiresWeightLog) {
+      const logged = await checkWeightLogged();
+      if (!logged) {
+        Alert.alert('Hold Up', "Log today's weight before completing this challenge.");
+        return;
+      }
+    }
+
+    const updated = list.filter((c) => c.id !== id);
     premium ? setPremiumChallenges(updated) : setChallenges(updated);
 
     const userId = session?.user?.id;
+    if (!premium && userId) {
+      const key = `challenges_${userId}_${todayStr}`;
+      const stored = await AsyncStorage.getItem(key);
+      const completed = stored ? JSON.parse(stored) : [];
+      if (!completed.includes(id)) {
+        completed.push(id);
+        await AsyncStorage.setItem(key, JSON.stringify(completed));
+      }
+    }
+
     if (userId) {
       const newStreak = await updateDailyStreak(userId);
       if (typeof newStreak === 'number' && onStreakUpdate) onStreakUpdate(newStreak);
     }
 
-    const allDone = updated.every((c) => c.progress >= c.total);
+    const allDone = updated.length === 0;
     const alreadyRewarded = premium ? premiumRewarded : rewarded;
     if (allDone && !alreadyRewarded) {
       premium ? setPremiumRewarded(true) : setRewarded(true);
@@ -59,30 +110,15 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
   };
 
   const renderChallenge = (c, premium = false) => {
-    const pct = Math.min(100, Math.round((c.progress / c.total) * 100));
-    const done = c.progress >= c.total;
     return (
       <View key={c.id} style={[styles.levelCard, !isDarkMode && styles.levelCardLight, { marginBottom: 20 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-          <Ionicons
-            name={done ? 'checkmark-circle' : 'ellipse-outline'}
-            size={24}
-            color={done ? '#1abc9c' : '#999'}
-            style={{ marginRight: 12 }}
-          />
+          <Ionicons name={'ellipse-outline'} size={24} color={'#999'} style={{ marginRight: 12 }} />
           <Text style={[styles.statLabel, !isDarkMode && styles.statLabelLight]}>{c.title}</Text>
         </View>
-        <View style={[styles.progressBar, !isDarkMode && styles.progressBarLight]}>
-          <View style={[styles.progressFill, { width: `${pct}%` }]} />
-        </View>
-        <Text style={[styles.progressText, !isDarkMode && styles.progressTextLight]}>
-          {done ? 'Done' : `${c.progress} / ${c.total}`}
-        </Text>
-        {!done && (
-          <TouchableOpacity onPress={() => handleComplete(c.id, premium)} style={{ marginTop: 8 }}>
-            <Text style={{ color: '#1abc9c', textAlign: 'center' }}>Mark Complete</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity onPress={() => handleComplete(c.id, premium)} style={{ marginTop: 8 }}>
+          <Text style={{ color: '#1abc9c', textAlign: 'center' }}>Mark Complete</Text>
+        </TouchableOpacity>
       </View>
     );
   };
