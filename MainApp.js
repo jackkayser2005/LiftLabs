@@ -178,21 +178,11 @@ export default function MainApp({ session, dark, toggleDark }) {
         >
           <Ionicons
             name={icon}
-            size={main ? 32 : 24}
+            size={main ? 36 : 28}
             color={
               screen === currentScreen ? '#1abc9c' : dark ? '#666' : '#999'
             }
           />
-          {!main && (
-            <Text
-              style={[
-                styles.navLabel,
-                screen === currentScreen && styles.navLabelActive,
-              ]}
-            >
-              {label}
-            </Text>
-          )}
         </TouchableOpacity>
       ))}
     </View>
