@@ -18,6 +18,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { VideoView as Video } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 
 import { LinearGradient } from 'expo-linear-gradient';
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
@@ -239,11 +241,12 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         const fileExt = asset.uri.split('.').pop();
         const fileName = `${userId}/${localID}.${fileExt}`;
         setUploading(true);
-        const response = await fetch(asset.uri);
-        const blob = await response.blob();
+        const fileData = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
         const { error: uploadError } = await supabase.storage
           .from('videos')
-          .upload(fileName, blob, {
+          .upload(fileName, Buffer.from(fileData, 'base64'), {
             contentType: 'video/mp4',
           });
         if (uploadError) {
