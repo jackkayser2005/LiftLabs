@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from './supabaseClient';
+import TopBar from './components/TopBar';
 
 const BodyFatCalculator = ({ isDarkMode }) => {
   // ─────── Local state ───────
@@ -626,12 +627,7 @@ const BodyFatCalculator = ({ isDarkMode }) => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       {/* Header */}
-      <View style={styles.header}>
-        <Ionicons name="body" size={32} color="#1abc9c" />
-        <Text style={[styles.headerTitle, !isDarkMode && styles.headerTitleLight]}>
-          Body Fat Calculator
-        </Text>
-      </View>
+      <TopBar title="Body Fat Calculator" dark={isDarkMode} />
 
       {renderMethodSelector()}
       {renderGenderSelector()}
