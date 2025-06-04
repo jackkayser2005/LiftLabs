@@ -23,6 +23,9 @@ import { Buffer } from 'buffer';
 
 import { LinearGradient } from 'expo-linear-gradient';
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import SubscriptionScreen from './SubscriptionScreen';
+import { registerForPushNotificationsAsync, scheduleTestNotification } from './lib/notifications';
 
 import SignInScreen from './SignInScreen';
 import SignUpScreen from './SignUpScreen';
@@ -45,6 +48,8 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [view, setView] = useState('signIn');
   const [loading, setLoading] = useState(true);
+  const [isPro, setIsPro] = useState(false);
+  const [pushToken, setPushToken] = useState(null);
 
   // welcome banner state
   const [showWelcome, setShowWelcome] = useState(false);
@@ -90,6 +95,20 @@ export default function App() {
     }
   }, [session]);
 
+  // register push notifications & load subscription state
+  useEffect(() => {
+    if (!session?.user) return;
+    (async () => {
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        setPushToken(token);
+        await scheduleTestNotification();
+      }
+      const sub = await AsyncStorage.getItem(`subscription_${session.user.id}`);
+      if (sub === 'pro') setIsPro(true);
+    })();
+  }, [session]);
+
 
 
 
@@ -130,11 +149,13 @@ export default function App() {
       showWelcome={showWelcome}
       setShowWelcome={setShowWelcome}
       welcomeAnim={welcomeAnim}
+      isPro={isPro}
+      setIsPro={setIsPro}
     />
   );
 }
 
-function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim }) {
+function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim, isPro, setIsPro }) {
   const MAX_VIDEOS = 20;
   const [currentScreen, setCurrentScreen] = useState('home');
   const [videos, setVideos] = useState([]);
@@ -700,6 +721,19 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
             await supabase.auth.signOut();
             setSession(null);
           }}
+          onManageSubscription={() => setCurrentScreen('subscription')}
+        />
+      );
+
+    case 'subscription':
+      return (
+        <SubscriptionScreen
+          isPro={isPro}
+          onSubscribe={async () => {
+            await AsyncStorage.setItem(`subscription_${session.user.id}`, 'pro');
+            setIsPro(true);
+          }}
+          onClose={() => setCurrentScreen('profile')}
         />
       );
 

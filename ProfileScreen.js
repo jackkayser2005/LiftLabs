@@ -26,6 +26,7 @@ export default function ProfileScreen({
   toggleDark,
   goBack,
   onLogout,
+  onManageSubscription,
 }) {
   /** ------------------------- Local state ------------------------- */
   const [loading, setLoading] = useState(true);
@@ -668,6 +669,26 @@ export default function ProfileScreen({
                     style={[styles.settingText, !dark && styles.settingTextLight]}
                   >
                     {dark ? 'Enable Light Mode' : 'Enable Dark Mode'}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={dark ? '#666' : '#999'}
+                />
+              </TouchableOpacity>
+
+              {/* Manage Subscription */}
+              <TouchableOpacity
+                style={[styles.settingItem, !dark && styles.settingItemLight]}
+                onPress={onManageSubscription}
+              >
+                <View style={styles.settingLeft}>
+                  <Ionicons name="card" size={20} color="#1abc9c" />
+                  <Text
+                    style={[styles.settingText, !dark && styles.settingTextLight]}
+                  >
+                    Manage Subscription
                   </Text>
                 </View>
                 <Ionicons
