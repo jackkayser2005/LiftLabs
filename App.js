@@ -31,6 +31,8 @@ import BodyFatCalculator from './body-fat';
 import CalorieTracker from './CalorieTracker';
 import Leaderboard from './leaderboard';
 import RealTimeVideo from './RealTimeVideo';
+import RankScreen from './RankScreen';
+import ChallengesScreen from './ChallengesScreen';
 
 import styles from './styles';      // your existing global styles
 import popUpStyles from './popUpStyles';  // new banner styles
@@ -293,11 +295,13 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   const deleteVideo = (v) => setVideos((prev) => prev.filter((x) => x.id !== v.id));
 
   const tabs = [
+    { icon: 'podium', screen: 'rank', label: 'Rank' },
     { icon: 'calculator', screen: 'calories', label: 'Calories' },
     { icon: 'body', screen: 'body', label: 'Body' },
     { icon: 'add', screen: 'home', main: true },
     { icon: 'barbell', screen: 'strength', label: 'Strength' },
     { icon: 'trophy', screen: 'leaderboard', label: 'Top' },
+    { icon: 'list', screen: 'challenges', label: 'Goals' },
   ];
 
   const Navbar = () => (
@@ -666,6 +670,24 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
 
     case 'leaderboard':
       return <LeaderboardScreen />;
+
+    case 'rank':
+      return (
+        <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+          <Header />
+          <RankScreen session={session} isDarkMode={isDarkMode} />
+          <Navbar />
+        </View>
+      );
+
+    case 'challenges':
+      return (
+        <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+          <Header />
+          <ChallengesScreen isDarkMode={isDarkMode} />
+          <Navbar />
+        </View>
+      );
 
     case 'profile':
       return (
