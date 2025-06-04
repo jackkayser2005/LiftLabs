@@ -288,6 +288,18 @@ export default function ProfileScreen({
 
   const weeks = useMemo(() => generateCalendar(calendarYear, calendarMonth), [calendarYear, calendarMonth]);
 
+  // XP progress bar
+  const xpNeeded = 1000;
+  const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progressPct,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [progressPct]);
+
 /** ---------------------- Early exits + loading spinners ---------------------- */
   if (!session?.user) {
     return (
@@ -323,18 +335,6 @@ export default function ProfileScreen({
     profile.first_name?.trim() ||
     session.user.user_metadata?.first_name ||
     session.user.email.split('@')[0];
-
-  // XP progress bar
-  const xpNeeded = 1000;
-  const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
-
-  useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: progressPct,
-      duration: 800,
-      useNativeDriver: false,
-    }).start();
-  }, [progressPct]);
 
 
   /** ---------------------- Main Render ---------------------- */
