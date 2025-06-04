@@ -446,7 +446,9 @@ export default function CalorieTracker({ isDarkMode }) {
       const today = new Date().toISOString().split('T')[0];
       let { data: existingLog, error: fetchError } = await supabase
         .from('calorie_logs')
-        .select('id, total_calories, protein_goal, carb_goal, fat_goal')
+        .select(
+          'id, total_calories, protein_consumed, carb_consumed, fat_consumed'
+        )
         .eq('user_id', user.id)
         .eq('log_date', today)
         .single();
@@ -486,34 +488,32 @@ export default function CalorieTracker({ isDarkMode }) {
           });
         }
       } else {
-        // UPDATE the goals fields (but do NOT touch total_calories, which is “remaining”)
+        // UPDATE goals and recompute remaining calories based on new target
+        const consumedCals =
+          (existingLog.protein_consumed || 0) * 4 +
+          (existingLog.carb_consumed || 0) * 4 +
+          (existingLog.fat_consumed || 0) * 9;
+        const newRemaining = Math.max(calcCalories - consumedCals, 0);
+
         const { error: updateLogError } = await supabase
           .from('calorie_logs')
           .update({
             protein_goal: protein,
             carb_goal: carbs,
             fat_goal: fat,
+            total_calories: newRemaining,
           })
           .eq('id', existingLog.id);
 
         if (updateLogError) {
           console.warn('Error updating today calorie_log goals:', updateLogError.message);
-        }
-
-        // Refresh local state (including “remaining”)
-        let { data: updatedLog, error: updatedFetchError } = await supabase
-          .from('calorie_logs')
-          .select('id, total_calories, protein_consumed, carb_consumed, fat_consumed')
-          .eq('id', existingLog.id)
-          .single();
-
-        if (!updatedFetchError && updatedLog) {
+        } else {
           setTodayEntry({
-            id: updatedLog.id,
-            total_calories: updatedLog.total_calories,
-            protein: updatedLog.protein_consumed,
-            carbs: updatedLog.carb_consumed,
-            fat: updatedLog.fat_consumed,
+            id: existingLog.id,
+            total_calories: newRemaining,
+            protein: existingLog.protein_consumed,
+            carbs: existingLog.carb_consumed,
+            fat: existingLog.fat_consumed,
           });
         }
       }
