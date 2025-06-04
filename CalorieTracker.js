@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from './supabaseClient';
+import { updateDailyStreak } from './lib/streak';
 import styles from './styles';
 
 const { width } = Dimensions.get('window');
@@ -94,6 +95,7 @@ export default function CalorieTracker({ isDarkMode }) {
       await fetchBodyFatAndHeight();
       await fetchUserGoals();
       await fetchTodayLogs();
+      await fetchStreakInfo();
       setLoading(false);
     })();
   }, []);
@@ -256,6 +258,31 @@ export default function CalorieTracker({ isDarkMode }) {
     } catch (e) {
       console.warn('Exception in fetchTodayLogs:', e.message);
       setTodayEntry(null);
+    }
+  }
+
+  async function fetchStreakInfo() {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      const { data: latest, error } = await supabase
+        .from('calorie_logs')
+        .select('log_date, streak_days')
+        .eq('user_id', user.id)
+        .order('log_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && latest) {
+        setStreakDays(latest.streak_days || 0);
+        if (latest.log_date === today) setStreakToday(true);
+      }
+    } catch (e) {
+      console.warn('Exception in fetchStreakInfo:', e.message);
     }
   }
 
@@ -676,14 +703,17 @@ export default function CalorieTracker({ isDarkMode }) {
 
       animateProgress();
 
-      if (updatedTotals.total_calories <= 0 && !streakToday) {
-        setStreakDays((prev) => prev + 1);
-        setExpPoints((prev) => prev + 500);
-        Alert.alert(
-          '✅ Congratulations!',
-          'You’ve consumed 100% of your calories. +500 XP, streak started!'
-        );
-        setStreakToday(true);
+      if (!streakToday) {
+        const newStreak = await updateDailyStreak(user.id);
+        if (newStreak !== null) {
+          setStreakDays(newStreak);
+          setExpPoints((prev) => prev + 500);
+          Alert.alert(
+            '✅ Congratulations!',
+            `Streak updated! You're on ${newStreak} days.`
+          );
+          setStreakToday(true);
+        }
       }
     } catch (e) {
       console.warn('Exception in handleSubmitFoodLog_ByMacros:', e.message);
