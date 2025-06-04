@@ -34,6 +34,7 @@ import RealTimeVideo from './RealTimeVideo';
 
 import styles from './styles';      // your existing global styles
 import popUpStyles from './popUpStyles';  // new banner styles
+import TopBar from './components/TopBar';
 import { supabase } from './supabaseClient';
 
 const LIVE_WORKOUT_ENABLED = true;
@@ -337,46 +338,12 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   );
 
   const Header = () => (
-    <View style={[styles.header, !isDarkMode && styles.headerLight]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Image
-          source={require('./images/logo.png')}
-          style={{ width: 24, height: 24, marginRight: 6, borderRadius: 4 }}
-        />
-        <Text
-          style={[styles.headerTitle, !isDarkMode && styles.headerTitleLight]}
-        >
-          LiftLabs
-        </Text>
-      </View>
-
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        {/* STREAK DISPLAY */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginRight: 20,
-          }}
-        >
-          <Ionicons name="flame" size={20} color="#1abc9c" />
-          <Text
-            style={{
-              color: isDarkMode ? '#fff' : '#1a1a1a',
-              marginLeft: 4,
-              fontWeight: '600',
-            }}
-          >
-            {streak}-Day
-          </Text>
-        </View>
-
-        {/* PROFILE BUTTON */}
-        <TouchableOpacity onPress={() => setCurrentScreen('profile')}>
-          <Ionicons name="person-circle" size={32} color="#1abc9c" />
-        </TouchableOpacity>
-      </View>
-    </View>
+    <TopBar
+      title="LiftLabs"
+      streak={streak}
+      dark={isDarkMode}
+      onProfilePress={() => setCurrentScreen('profile')}
+    />
   );
 
   const BackBtn = () => (

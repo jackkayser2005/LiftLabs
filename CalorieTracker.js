@@ -592,6 +592,23 @@ export default function CalorieTracker({ isDarkMode }) {
       Alert.alert('Please fill in protein, carbs, and fat.');
       return;
     }
+
+    const protVal = parseFloat(proteinIn);
+    const carbVal = parseFloat(carbsIn);
+    const fatVal = parseFloat(fatIn);
+    if (isNaN(protVal) || isNaN(carbVal) || isNaN(fatVal)) {
+      Alert.alert('Macros must be valid numbers.');
+      return;
+    }
+
+    if (dailyCalories <= 0) {
+      await fetchUserGoals();
+      if (dailyCalories <= 0) {
+        Alert.alert('Set your goals before logging food.');
+        return;
+      }
+    }
+
     setSubmittingLog(true);
 
     try {
@@ -605,9 +622,6 @@ export default function CalorieTracker({ isDarkMode }) {
       }
 
       const today = new Date().toISOString().split('T')[0];
-      const protVal = parseInt(proteinIn, 10);
-      const carbVal = parseInt(carbsIn, 10);
-      const fatVal = parseInt(fatIn, 10);
 
       // 1) Fetch or create today’s calorie_log row
       let { data: existingLog, error: fetchError } = await supabase
@@ -693,6 +707,7 @@ export default function CalorieTracker({ isDarkMode }) {
           carbs: updatedLog.carb_consumed,
           fat: updatedLog.fat_consumed,
         });
+        await fetchTodayLogs();
       }
 
       // Reset inputs and UI
