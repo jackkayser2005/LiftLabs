@@ -43,6 +43,7 @@ import TopBar from './components/TopBar';
 import { supabase } from './supabaseClient';
 
 const LIVE_WORKOUT_ENABLED = true;
+const PREMIUM_USER = true;
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -705,7 +706,7 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
       return (
         <View style={[styles.container, !isDarkMode && styles.containerLight]}>
           <Header />
-          <ChallengesScreen isDarkMode={isDarkMode} />
+          <ChallengesScreen session={session} isDarkMode={isDarkMode} isPremium={PREMIUM_USER} onStreakUpdate={(s)=>setStreak(s)} />
           <Navbar />
         </View>
       );
