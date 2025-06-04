@@ -557,8 +557,8 @@ export default function CalorieTracker({ isDarkMode }) {
   }
 
   //────────────────────────────────────────────────────────────────
-  // 5a) MANUAL FOOD LOGGING (By Macros) → SUBTRACT from total_calories
-  //     (Also handles streak & 500 XP awarding)
+  // 5a) MANUAL FOOD LOGGING (By Macros) → ensure today’s row exists and
+  //     recalc remaining calories from scratch
   //────────────────────────────────────────────────────────────────
   async function handleSubmitFoodLog_ByMacros() {
     if (!proteinIn.trim() || !carbsIn.trim() || !fatIn.trim()) {
@@ -578,34 +578,25 @@ export default function CalorieTracker({ isDarkMode }) {
       }
 
       const today = new Date().toISOString().split('T')[0];
-      // Derive calories from macros: 4 kcal/g (protein & carbs), 9 kcal/g (fat)
       const protVal = parseInt(proteinIn, 10);
       const carbVal = parseInt(carbsIn, 10);
       const fatVal = parseInt(fatIn, 10);
-      const calsVal = protVal * 4 + carbVal * 4 + fatVal * 9;
 
-      // 5a.i) Fetch (or create) “today’s” row
+      // 1) Fetch or create today’s calorie_log row
       let { data: existingLog, error: fetchError } = await supabase
         .from('calorie_logs')
-        .select(`
-          id,
-          total_calories,
-          protein_consumed,
-          carb_consumed,
-          fat_consumed
-        `)
+        .select('id, total_calories, protein_consumed, carb_consumed, fat_consumed')
         .eq('user_id', user.id)
         .eq('log_date', today)
         .single();
 
       if (fetchError && fetchError.code !== 'PGRST116') {
-        console.warn('Error fetching today’s calorie_log:', fetchError.message);
+        console.warn('Error fetching today log:', fetchError.message);
         setSubmittingLog(false);
         return;
       }
 
       if (!existingLog) {
-        // No “today” row yet → create it with current goal’s macros
         const { data: ug, error: ugError } = await supabase
           .from('user_goals')
           .select('daily_calories, protein_goal, carb_goal, fat_goal')
@@ -615,7 +606,7 @@ export default function CalorieTracker({ isDarkMode }) {
           .single();
 
         if (ugError) {
-          console.warn('Error fetching user_goals for new log:', ugError.message);
+          console.warn('Error fetching goals:', ugError.message);
           setSubmittingLog(false);
           return;
         }
@@ -631,28 +622,31 @@ export default function CalorieTracker({ isDarkMode }) {
           carb_consumed: 0,
           fat_consumed: 0,
         };
-        let { data: insertedLog, error: insertLogError } = await supabase
+        let { data: insertedLog, error: insertError } = await supabase
           .from('calorie_logs')
           .insert([insertPayload])
           .single();
 
-        if (insertLogError) {
-          console.warn('Error inserting today calorie_log:', insertLogError.message);
+        if (insertError) {
+          console.warn('Error inserting today log:', insertError.message);
           setSubmittingLog(false);
           return;
         }
         existingLog = insertedLog;
       }
 
-      // 5a.ii) Subtract derived calories from “remaining”
-      let newRemaining = (existingLog.total_calories || 0) - calsVal;
-      if (newRemaining < 0) newRemaining = 0; // Clamp at zero
+      // 2) Compute updated totals from scratch
+      const newProtein = (existingLog.protein_consumed || 0) + protVal;
+      const newCarbs = (existingLog.carb_consumed || 0) + carbVal;
+      const newFat = (existingLog.fat_consumed || 0) + fatVal;
+      const consumedCals = newProtein * 4 + newCarbs * 4 + newFat * 9;
+      const newRemaining = Math.max(dailyCalories - consumedCals, 0);
 
       const updatedTotals = {
         total_calories: newRemaining,
-        protein_consumed: (existingLog.protein_consumed || 0) + protVal,
-        carb_consumed: (existingLog.carb_consumed || 0) + carbVal,
-        fat_consumed: (existingLog.fat_consumed || 0) + fatVal,
+        protein_consumed: newProtein,
+        carb_consumed: newCarbs,
+        fat_consumed: newFat,
       };
 
       const { data: updatedLog, error: updateError } = await supabase
@@ -663,9 +657,8 @@ export default function CalorieTracker({ isDarkMode }) {
         .single();
 
       if (updateError) {
-        console.warn('Error updating today calorie_log:', updateError.message);
+        console.warn('Error updating today log:', updateError.message);
       } else if (updatedLog) {
-        // 5a.iii) Update local state with the freshly returned totals
         setTodayEntry({
           id: updatedLog.id,
           total_calories: updatedLog.total_calories,
@@ -675,16 +668,14 @@ export default function CalorieTracker({ isDarkMode }) {
         });
       }
 
-      // 5a.iv) Clear the macro inputs & collapse micros
+      // Reset inputs and UI
       setProteinIn('');
       setCarbsIn('');
       setFatIn('');
       setShowMicros(false);
 
-      // 5a.v) Animate the progress bar
       animateProgress();
 
-      // 5a.vi) If remaining calories ≤ 0 and we haven't awarded streak/XP today:
       if (updatedTotals.total_calories <= 0 && !streakToday) {
         setStreakDays((prev) => prev + 1);
         setExpPoints((prev) => prev + 500);
