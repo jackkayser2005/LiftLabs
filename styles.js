@@ -103,10 +103,13 @@ export default StyleSheet.create({
     borderRadius: 14,
     marginHorizontal: 3,
   },
+  navItemActive: {
+    backgroundColor: 'rgba(26,188,156,0.12)',
+  },
   navMainBtn: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#1abc9c',
     alignItems: 'center',
     justifyContent: 'center',
