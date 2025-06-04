@@ -1,11 +1,23 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, SafeAreaView, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function TopBar({ title, streak, onProfilePress, dark }) {
+  const gradientColors = dark
+    ? ['#0a0f0d', '#142723', '#0a0f0d']
+    : ['#ffffff', '#f0f0f0', '#ffffff'];
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={[styles.container, !dark && styles.containerLight]}>
+      <StatusBar style={dark ? 'light' : 'dark'} />
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.container, !dark && styles.containerLight]}
+      >
         <View style={styles.titleRow}>
           <Image source={require('../images/logo.png')} style={styles.logo} />
           <Text style={[styles.title, !dark && styles.titleLight]}>{title}</Text>
@@ -21,7 +33,7 @@ export default function TopBar({ title, streak, onProfilePress, dark }) {
             <Ionicons name="person-circle" size={32} color="#1abc9c" />
           </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -37,7 +49,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 12,
     paddingTop: 10,
-    backgroundColor: '#111',
     borderBottomWidth: 1,
     borderBottomColor: '#333',
     shadowColor: '#000',
@@ -47,7 +58,6 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   containerLight: {
-    backgroundColor: '#fff',
     borderBottomColor: '#e0e0e0',
     shadowOpacity: 0.05,
   },
