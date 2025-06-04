@@ -141,6 +141,14 @@ export default StyleSheet.create({
     color: '#1abc9c',
     fontWeight: '600',
   },
+  navIndicator: {
+    position: 'absolute',
+    bottom: 16,
+    height: 3,
+    width: 30,
+    borderRadius: 1.5,
+    backgroundColor: '#1abc9c',
+  },
 
   // === TIP BANNER STYLES ===
   tipBanner: {

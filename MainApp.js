@@ -9,6 +9,8 @@ import {
   Image,
   Modal,
   ActivityIndicator,
+  Animated,
+  useWindowDimensions,
 } from 'react-native';
 
 import * as ImagePicker from 'expo-image-picker';
@@ -31,6 +33,8 @@ export default function MainApp({ session, dark, toggleDark }) {
   const [lastTab, setLastTab]             = useState(null);
 
   const videoRef = useRef(null);
+  const indicatorAnim = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
 
   // Helper: pick a video, upload storage → insert row into `videos`
   const selectVideo = async () => {
@@ -126,6 +130,13 @@ export default function MainApp({ session, dark, toggleDark }) {
       setCurrentScreen(tab);
     }
     setLastTab(tab);
+    const index = tabs.findIndex((t) => t.screen === tab);
+    if (index >= 0) {
+      Animated.spring(indicatorAnim, {
+        toValue: index * tabWidth + tabWidth / 2 - 15,
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
   const deleteVideo = (v) =>
@@ -139,8 +150,23 @@ export default function MainApp({ session, dark, toggleDark }) {
     { icon: 'trophy', screen: 'leaderboard', label: 'Top' },
   ];
 
+  const tabWidth = width / tabs.length;
+
+  useEffect(() => {
+    const index = tabs.findIndex((t) => t.screen === currentScreen);
+    if (index >= 0) {
+      indicatorAnim.setValue(index * tabWidth + tabWidth / 2 - 15);
+    }
+  }, [width]);
+
   const Navbar = () => (
     <View style={[styles.navbar, !dark && styles.navbarLight]}>
+      <Animated.View
+        style={[
+          styles.navIndicator,
+          { transform: [{ translateX: indicatorAnim }] },
+        ]}
+      />
       {tabs.map(({ icon, screen, label, main }) => (
         <TouchableOpacity
           key={screen}
