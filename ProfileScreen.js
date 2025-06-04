@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   Image,
   ScrollView,
@@ -46,6 +47,16 @@ export default function ProfileScreen({
   const [userPercentile, setUserPercentile] = useState(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
+  // Weight progress tracking
+  const [weightGoal, setWeightGoal] = useState(null);
+  const [startWeight, setStartWeight] = useState(null);
+  const [currentWeight, setCurrentWeight] = useState(null);
+  const [weightLogs, setWeightLogs] = useState([]);
+  const [weightDates, setWeightDates] = useState(new Set());
+  const weightProgressAnim = useRef(new Animated.Value(0)).current;
+  const [newWeight, setNewWeight] = useState('');
+  const [submittingWeight, setSubmittingWeight] = useState(false);
+
   // NEW: track workout dates for calendar
   const [workoutDates, setWorkoutDates] = useState(new Set());
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
@@ -77,6 +88,8 @@ export default function ProfileScreen({
           { count: wCnt, error: wErr },
           { data: bfpEntry, error: bfpErr },
           { data: logs, error: logsErr },
+          { data: goalData, error: goalErr },
+          { data: weightData, error: weightErr },
         ] = await Promise.all([
           supabase
             .from('profile')
@@ -102,6 +115,17 @@ export default function ProfileScreen({
             .from('strength_logs')
             .select('date_performed')
             .eq('user_id', userId),
+          supabase
+            .from('user_goals')
+            .select('current_weight, target_weight')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from('weight_logs')
+            .select('log_date, weight_lbs')
+            .eq('user_id', userId),
         ]);
 
         if (pErr) throw pErr;
@@ -124,6 +148,35 @@ export default function ProfileScreen({
             })
           );
           setWorkoutDates(datesSet);
+        }
+
+        if (!goalErr && goalData) {
+          setWeightGoal(goalData.target_weight ?? null);
+          if (startWeight == null) {
+            setStartWeight(goalData.current_weight ?? null);
+          }
+          if (currentWeight == null) {
+            setCurrentWeight(goalData.current_weight ?? null);
+          }
+        }
+
+        if (!weightErr && weightData) {
+          const sortedLogs = weightData.sort((a, b) =>
+            new Date(a.log_date) - new Date(b.log_date)
+          );
+          setWeightLogs(sortedLogs);
+          const wDates = new Set(
+            sortedLogs.map((l) =>
+              typeof l.log_date === 'string'
+                ? l.log_date.split('T')[0]
+                : l.log_date.toISOString().split('T')[0]
+            )
+          );
+          setWeightDates(wDates);
+          if (sortedLogs.length > 0) {
+            setStartWeight(sortedLogs[0].weight_lbs);
+            setCurrentWeight(sortedLogs[sortedLogs.length - 1].weight_lbs);
+          }
         }
 
         // 6) Store profile, counts, and latestBfp into local state
@@ -252,6 +305,45 @@ export default function ProfileScreen({
     }
   };
 
+  /** ---------------------- Log Today's Weight ---------------------- */
+  const logWeight = async () => {
+    if (!newWeight.trim()) return;
+    try {
+      setSubmittingWeight(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const dateStr = new Date().toISOString().split('T')[0];
+      const { error } = await supabase.from('weight_logs').insert([
+        {
+          user_id: user.id,
+          log_date: dateStr,
+          weight_lbs: parseFloat(newWeight),
+        },
+      ]);
+      if (!error) {
+        const updated = [
+          ...weightLogs,
+          { log_date: dateStr, weight_lbs: parseFloat(newWeight) },
+        ].sort((a, b) => new Date(a.log_date) - new Date(b.log_date));
+        setWeightLogs(updated);
+        setWeightDates(
+          new Set(updated.map((l) => l.log_date.split('T')[0]))
+        );
+        setCurrentWeight(parseFloat(newWeight));
+        if (!startWeight) setStartWeight(parseFloat(newWeight));
+        setNewWeight('');
+      } else {
+        console.warn('logWeight error:', error.message);
+      }
+    } catch (e) {
+      console.warn('logWeight exception:', e.message);
+    } finally {
+      setSubmittingWeight(false);
+    }
+  };
+
   /** ---------------------- Helpers for Calendar ---------------------- */
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -292,6 +384,26 @@ export default function ProfileScreen({
   const xpNeeded = 1000;
   const progressPct = Math.min(100, Math.floor((profile.exp / xpNeeded) * 100));
 
+  const weightProgressPct = useMemo(() => {
+    if (
+      startWeight != null &&
+      currentWeight != null &&
+      weightGoal != null &&
+      startWeight !== weightGoal
+    ) {
+      return Math.min(
+        100,
+        Math.max(
+          0,
+          Math.round(
+            ((startWeight - currentWeight) / (startWeight - weightGoal)) * 100
+          )
+        )
+      );
+    }
+    return 0;
+  }, [startWeight, currentWeight, weightGoal]);
+
   useEffect(() => {
     Animated.timing(progressAnim, {
       toValue: progressPct,
@@ -299,6 +411,14 @@ export default function ProfileScreen({
       useNativeDriver: false,
     }).start();
   }, [progressPct]);
+
+  useEffect(() => {
+    Animated.timing(weightProgressAnim, {
+      toValue: weightProgressPct,
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [weightProgressPct]);
 
 /** ---------------------- Early exits + loading spinners ---------------------- */
   if (!session?.user) {
@@ -534,6 +654,56 @@ export default function ProfileScreen({
                 </View>
               </View>
 
+              {/* ───────── Weight Progress (NEW) ───────── */}
+              <View style={[styles.weightSection, !dark && styles.weightSectionLight]}>
+                <Text style={[styles.sectionTitle, !dark && styles.sectionTitleLight]}>Weight Progress</Text>
+                {weightGoal ? (
+                  <>
+                    <View style={styles.weightInputContainer}>
+                      <TextInput
+                        style={[styles.weightInput, !dark && styles.weightInputLight]}
+                        placeholder="Today's Weight"
+                        placeholderTextColor={dark ? '#666' : '#999'}
+                        keyboardType="numeric"
+                        value={newWeight}
+                        onChangeText={setNewWeight}
+                      />
+                      <TouchableOpacity
+                        style={styles.setGoalBtn}
+                        onPress={logWeight}
+                        disabled={submittingWeight}
+                      >
+                        {submittingWeight ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.setGoalBtnText}>Log</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    <View style={[styles.progressBar, !dark && styles.progressBarLight]}>
+                      <Animated.View
+                        style={[
+                          styles.progressFill,
+                          {
+                            width: weightProgressAnim.interpolate({
+                              inputRange: [0, 100],
+                              outputRange: ['0%', '100%'],
+                            }),
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.progressText, !dark && styles.progressTextLight]}>
+                      {currentWeight ?? '--'} lbs (goal {weightGoal} lbs)
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={[styles.progressText, !dark && styles.progressTextLight]}>
+                    Set a weight goal in the Calorie Tracker to begin.
+                  </Text>
+                )}
+              </View>
+
               {/* ───────── Workout Calendar (moved above Settings) ───────── */}
             <View
               style={[
@@ -610,6 +780,7 @@ export default function ProfileScreen({
                     }
                     const dateStr = dayObj.toISOString().split('T')[0]; // "YYYY-MM-DD"
                     const didWorkout = workoutDates.has(dateStr);
+                    const hasWeight = weightDates.has(dateStr);
                     const isToday = dateStr === todayStr;
                     return (
                       <View
@@ -640,6 +811,7 @@ export default function ProfileScreen({
                         >
                           {dayObj.getDate()}
                         </Text>
+                        {hasWeight && <View style={calendarStyles.weightDot} />}
                       </View>
                     );
                   })}
@@ -751,5 +923,12 @@ const calendarStyles = StyleSheet.create({
   },
   todayText: {
     fontWeight: '700',
+  },
+  weightDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3498db',
+    marginTop: 2,
   },
 });
