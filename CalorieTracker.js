@@ -1314,7 +1314,12 @@ export default function CalorieTracker({ isDarkMode }) {
           {logSectionVisible && (
             <View style={{ marginTop: 12 }}>
               {/* ─── LOG TABS ─── */}
-              <View style={trackerStyles.logTabsContainer}>
+              <View
+                style={[
+                  trackerStyles.logTabsContainer,
+                  isDarkMode ? {} : trackerStyles.logTabsContainerLight,
+                ]}
+              >
                 <TouchableOpacity
                   style={[
                     trackerStyles.logTab,
@@ -1325,6 +1330,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   <Text
                     style={[
                       trackerStyles.logTabText,
+                      isDarkMode ? {} : trackerStyles.logTabTextLight,
                       activeLogTab === 'macros' && trackerStyles.logTabTextActive,
                     ]}
                   >
@@ -1341,6 +1347,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   <Text
                     style={[
                       trackerStyles.logTabText,
+                      isDarkMode ? {} : trackerStyles.logTabTextLight,
                       activeLogTab === 'byName' && trackerStyles.logTabTextActive,
                     ]}
                   >
@@ -1357,6 +1364,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   <Text
                     style={[
                       trackerStyles.logTabText,
+                      isDarkMode ? {} : trackerStyles.logTabTextLight,
                       activeLogTab === 'addFood' && trackerStyles.logTabTextActive,
                     ]}
                   >
@@ -1916,26 +1924,34 @@ const trackerStyles = StyleSheet.create({
   logTabsContainer: {
     flexDirection: 'row',
     marginHorizontal: 20,
-    marginBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#222',
+  },
+  logTabsContainerLight: {
+    backgroundColor: '#f8f9fa',
+    borderColor: '#ccc',
   },
   logTab: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
   },
   logTabActive: {
-    borderBottomColor: '#1abc9c',
+    backgroundColor: '#1abc9c',
   },
   logTabText: {
     color: '#aaa',
     fontSize: 16,
   },
+  logTabTextLight: {
+    color: '#555',
+  },
   logTabTextActive: {
-    color: '#1abc9c',
+    color: '#fff',
     fontWeight: '600',
   },
   accordionToggle: {
