@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import styles from './styles';
+import popUpStyles from './popUpStyles';
 import { updateDailyStreak } from './lib/streak';
 import { addExp } from './lib/profile';
 import { supabase } from './supabaseClient';
@@ -10,8 +11,8 @@ import { supabase } from './supabaseClient';
 const dailySets = [
   [
     { id: 'w1', title: 'Complete a Workout', total: 1 },
-    { id: 'wt1', title: "Log Today's Weight", total: 1, requiresWeightLog: true },
-    { id: 'xp1', title: 'Earn 500 XP', total: 1 },
+    { id: 'wt1', title: "Log Today's Weight", total: 1, requiresWeightLog: true, dbTracked: true },
+    { id: 'xp1', title: 'Earn 500 XP', total: 1, dbTracked: true },
   ],
   [
     { id: 'r1', title: 'Run 2 Miles', total: 1 },
@@ -31,6 +32,11 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
   const [premiumChallenges, setPremiumChallenges] = useState([]);
   const [rewarded, setRewarded] = useState(false);
   const [premiumRewarded, setPremiumRewarded] = useState(false);
+  const [showReward, setShowReward] = useState(false);
+  const [levelUp, setLevelUp] = useState(false);
+  const rewardAnim = useRef(new Animated.Value(0)).current;
+  const levelAnim = useRef(new Animated.Value(0)).current;
+  const premiumLocked = true;
 
   // Date string used for storage key
   const todayStr = new Date().toISOString().split('T')[0];
@@ -53,6 +59,25 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
     })();
   }, [session]);
 
+  useEffect(() => {
+    if (showReward) {
+      rewardAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(rewardAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.delay(3000),
+        Animated.timing(rewardAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]).start(() => {
+        setShowReward(false);
+        setLevelUp(false);
+      });
+
+      if (levelUp) {
+        levelAnim.setValue(0);
+        Animated.spring(levelAnim, { toValue: 1, useNativeDriver: true }).start();
+      }
+    }
+  }, [showReward]);
+
   const checkWeightLogged = async () => {
     const userId = session?.user?.id;
     if (!userId) return false;
@@ -72,6 +97,11 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
     const list = premium ? premiumChallenges : challenges;
     const challenge = list.find((c) => c.id === id);
     if (!challenge) return;
+
+    if (challenge.dbTracked) {
+      Alert.alert('Auto Tracked', 'This challenge is completed automatically.');
+      return;
+    }
 
     if (challenge.requiresWeightLog) {
       const logged = await checkWeightLogged();
@@ -104,21 +134,44 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
     const alreadyRewarded = premium ? premiumRewarded : rewarded;
     if (allDone && !alreadyRewarded) {
       premium ? setPremiumRewarded(true) : setRewarded(true);
-      if (userId) await addExp(userId, 1000);
-      Alert.alert('Great Job!', `You earned 1000 XP for completing ${premium ? 'premium ' : ''}challenges!`);
+      if (userId) {
+        const result = await addExp(userId, 1000);
+        setLevelUp(result?.levelUp || false);
+      }
+      setShowReward(true);
     }
   };
 
-  const renderChallenge = (c, premium = false) => {
+  const renderChallenge = (c, premium = false, locked = false) => {
     return (
-      <View key={c.id} style={[styles.levelCard, !isDarkMode && styles.levelCardLight, { marginBottom: 20 }]}>
+      <View
+        key={c.id}
+        style={[
+          styles.levelCard,
+          !isDarkMode && styles.levelCardLight,
+          { marginBottom: 20, opacity: locked ? 0.5 : 1 },
+        ]}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-          <Ionicons name={'ellipse-outline'} size={24} color={'#999'} style={{ marginRight: 12 }} />
+          <Ionicons
+            name={locked ? 'lock-closed' : 'ellipse-outline'}
+            size={24}
+            color={'#999'}
+            style={{ marginRight: 12 }}
+          />
           <Text style={[styles.statLabel, !isDarkMode && styles.statLabelLight]}>{c.title}</Text>
         </View>
-        <TouchableOpacity onPress={() => handleComplete(c.id, premium)} style={{ marginTop: 8 }}>
-          <Text style={{ color: '#1abc9c', textAlign: 'center' }}>Mark Complete</Text>
-        </TouchableOpacity>
+        {!locked && !c.dbTracked && (
+          <TouchableOpacity onPress={() => handleComplete(c.id, premium)} style={{ marginTop: 8 }}>
+            <Text style={{ color: '#1abc9c', textAlign: 'center' }}>Mark Complete</Text>
+          </TouchableOpacity>
+        )}
+        {c.dbTracked && !locked && (
+          <Text style={{ color: '#6c757d', textAlign: 'center', marginTop: 8 }}>Auto-tracked</Text>
+        )}
+        {locked && (
+          <Text style={{ color: '#6c757d', textAlign: 'center', marginTop: 8 }}>Pro Only</Text>
+        )}
       </View>
     );
   };
@@ -131,14 +184,35 @@ export default function ChallengesScreen({ session, isPremium = false, onStreakU
         <Text style={[styles.sectionTitle, { marginTop: 20 }, !isDarkMode && styles.sectionTitleLight]}>
           Premium Challenges
         </Text>
-        {isPremium
-          ? premiumChallenges.map((c) => renderChallenge(c, true))
-          : (
-            <View style={[styles.levelCard, !isDarkMode && styles.levelCardLight]}>
-              <Text style={[styles.statLabel, !isDarkMode && styles.statLabelLight]}>Premium challenges locked</Text>
-            </View>
-          )}
+        {premiumChallenges.map((c) => renderChallenge(c, true, true))}
       </View>
     </ScrollView>
+    {showReward && (
+      <Animated.View
+        style={[
+          popUpStyles.expBanner,
+          {
+            transform: [
+              {
+                translateY: rewardAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [80, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <Ionicons name="trophy" size={24} color="#fff" style={{ marginRight: 8 }} />
+        <Text style={popUpStyles.expText}>+1000 XP</Text>
+        {levelUp && (
+          <Animated.Text
+            style={[popUpStyles.levelUpText, { transform: [{ scale: levelAnim }] }]}
+          >
+            Level Up!
+          </Animated.Text>
+        )}
+      </Animated.View>
+    )}
   );
 }
