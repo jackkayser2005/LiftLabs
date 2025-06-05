@@ -18,7 +18,12 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import { supabase } from './supabaseClient';
+import { updateDailyStreak } from './lib/streak';
 import styles from './styles';
+
+// Sensible upper bounds to prevent absurd input values
+const MAX_WEIGHT = 1500; // lbs
+const MAX_REPS = 100;
 
 const { width } = Dimensions.get('window');
 
@@ -62,15 +67,21 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
   // “Flash banner” for success/error messages
   const [flashMessage, setFlashMessage] = useState('');
   const [flashBg, setFlashBg] = useState('#1abc9c'); // green by default
-  const flashAnim = useRef(new Animated.Value(-60)).current; // banner height: 60
+  const [flashType, setFlashType] = useState('success');
+  const flashAnim = useRef(new Animated.Value(-80)).current; // banner height
 
   // “+250 EXP” pop-up
   const [showExpPopup, setShowExpPopup] = useState(false);
   const expFade = useRef(new Animated.Value(0)).current;
 
+  // Streak tracking
+  const [streakDays, setStreakDays] = useState(0);
+  const [streakToday, setStreakToday] = useState(false);
+
   // ─── FlashBanner Helpers ─────────────────────────────────────────────────────────
   const showMessage = (msg, type = 'success') => {
     // type: 'success' (green) or 'error' (red)
+    setFlashType(type);
     setFlashBg(type === 'success' ? '#1abc9c' : '#e74c3c');
     setFlashMessage(msg);
     Animated.timing(flashAnim, {
@@ -82,7 +93,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
       // Hide after 2s
       setTimeout(() => {
         Animated.timing(flashAnim, {
-          toValue: -60,
+          toValue: -80,
           duration: 300,
           easing: Easing.in(Easing.ease),
           useNativeDriver: true,
@@ -110,6 +121,9 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
           setProfileExp(prof.exp || 0);
           setLastExpDate(prof.last_exp_date);
         }
+
+        // Initialize streak info
+        await fetchStreakInfo(data.session.user.id);
       }
     });
   }, []);
@@ -140,6 +154,21 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
       return acc;
     }, {});
     setGroupedLogs(grouped);
+  };
+
+  const fetchStreakInfo = async (uid) => {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('calorie_logs')
+      .select('log_date, streak_days')
+      .eq('user_id', uid)
+      .order('log_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      setStreakDays(data.streak_days || 0);
+      if (data.log_date === today) setStreakToday(true);
+    }
   };
 
   // ─── 3) Helpers: 1RM & Tips ─────────────────────────────────────────────────────────
@@ -193,6 +222,13 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
       const { wNum, rNum } = parsedSets[i];
       if (isNaN(wNum) || isNaN(rNum) || wNum <= 0 || rNum <= 0) {
         showMessage(`Set ${i + 1} must have positive weight & reps.`, 'error');
+        return;
+      }
+      if (wNum > MAX_WEIGHT || rNum > MAX_REPS) {
+        showMessage(
+          `Set ${i + 1} exceeds ${MAX_WEIGHT} lbs or ${MAX_REPS} reps limit.`,
+          'error'
+        );
         return;
       }
     }
@@ -319,6 +355,14 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
         }).start();
       }
     }
+
+    if (!streakToday) {
+      const newStreak = await updateDailyStreak(user.id);
+      if (newStreak !== null) {
+        setStreakDays(newStreak);
+        setStreakToday(true);
+      }
+    }
   };
 
   // ─── 7) “1RM Calculator” Handler ─────────────────────────────────────────────────
@@ -331,6 +375,13 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
     const rNum = parseInt(calcReps, 10);
     if (isNaN(wNum) || isNaN(rNum) || wNum <= 0 || rNum <= 0) {
       showMessage('Weight and reps must be positive numbers.', 'error');
+      return;
+    }
+    if (wNum > MAX_WEIGHT || rNum > MAX_REPS) {
+      showMessage(
+        `Weight must be ≤${MAX_WEIGHT} lbs and reps ≤${MAX_REPS}.`,
+        'error'
+      );
       return;
     }
     const oneRM = calculateOneRepMax(wNum, rNum);
@@ -572,10 +623,22 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
         <Animated.View
           style={[
             localStyles.flashBanner,
-            { backgroundColor: flashBg, transform: [{ translateY: flashAnim }] },
+            { transform: [{ translateY: flashAnim }] },
           ]}
         >
-          <Text style={localStyles.flashText}>{flashMessage}</Text>
+          <View style={[localStyles.flashContent, { backgroundColor: flashBg }]}>
+            <Ionicons
+              name={
+                flashType === 'success'
+                  ? 'checkmark-circle-outline'
+                  : 'alert-circle-outline'
+              }
+              size={22}
+              color="#fff"
+              style={{ marginRight: 8 }}
+            />
+            <Text style={localStyles.flashText}>{flashMessage}</Text>
+          </View>
         </Animated.View>
       )}
 
@@ -658,6 +721,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                 placeholder="e.g. 185"
                 placeholderTextColor={isDarkMode ? '#666' : '#999'}
                 keyboardType="numeric"
+                maxLength={4}
                 value={calcWeight}
                 onChangeText={setCalcWeight}
               />
@@ -683,6 +747,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                 placeholder="e.g. 5"
                 placeholderTextColor={isDarkMode ? '#666' : '#999'}
                 keyboardType="numeric"
+                maxLength={3}
                 value={calcReps}
                 onChangeText={setCalcReps}
               />
@@ -860,6 +925,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                       placeholder="e.g. 185"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
+                      maxLength={4}
                       value={s.weight}
                       onChangeText={(val) => updateSetField(idx, 'weight', val)}
                     />
@@ -884,6 +950,7 @@ const StrengthTraining = ({ setCurrentScreen, isDarkMode }) => {
                       placeholder="e.g. 8"
                       placeholderTextColor={isDarkMode ? '#666' : '#999'}
                       keyboardType="numeric"
+                      maxLength={3}
                       value={s.reps}
                       onChangeText={(val) => updateSetField(idx, 'reps', val)}
                     />
@@ -1378,13 +1445,26 @@ const localStyles = StyleSheet.create({
   // Flash banner at top
   flashBanner: {
     position: 'absolute',
-    top: 0,
+    top: 20,
     left: 0,
     right: 0,
     height: 60,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 20,
+    paddingHorizontal: 20,
+  },
+  flashContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
   },
   flashText: {
     color: '#fff',
@@ -1401,13 +1481,16 @@ const localStyles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 30,
   },
   expPopupCard: {
-    width: width * 0.75,
+    width: '100%',
     backgroundColor: '#1f1f1f',
     borderRadius: 14,
     padding: 24,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
@@ -1424,8 +1507,9 @@ const localStyles = StyleSheet.create({
   expPopupButton: {
     backgroundColor: '#1abc9c',
     borderRadius: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 24,
+    alignSelf: 'stretch',
     shadowColor: '#1abc9c',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -1436,5 +1520,6 @@ const localStyles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
   },
 });

@@ -15,165 +15,114 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from './supabaseClient';
+import { updateDailyStreak } from './lib/streak';
 import styles from './styles';
 
 const { width } = Dimensions.get('window');
 
 export default function CalorieTracker({ isDarkMode }) {
-  // ───────── QUIZ (GOAL-SETTING) STATE ─────────
+  // ── 1) User & Session State ───────────────────────────────────────────────────────
+  const [user, setUser] = useState(null);
+
+  // ── 2) Profile: Goals & Streak State ───────────────────────────────────────────────
   const [age, setAge] = useState('');
   const [gender, setGender] = useState('');
   const [heightCm, setHeightCm] = useState(null);
-  const [bodyFatPercentage, setBodyFatPercentage] = useState(null);
-
-  const [currentWeight, setCurrentWeight] = useState(''); // lbs
-  const [targetWeight, setTargetWeight] = useState(''); // lbs
+  const [currentWeight, setCurrentWeight] = useState('');
+  const [targetWeight, setTargetWeight] = useState('');
   const [goalType, setGoalType] = useState('maintain');
   const [activityLevel, setActivityLevel] = useState('sedentary');
-
-  // Track existing user_goals row (so we know whether to INSERT vs UPDATE)
   const [goalRowId, setGoalRowId] = useState(null);
-  // Whether this is truly the “first time” they set a goal (for 250 XP)
   const [isFirstGoal, setIsFirstGoal] = useState(false);
 
-  // ───────── MACRO GOALS ─────────
   const [dailyCalories, setDailyCalories] = useState(0);
   const [proteinGoal, setProteinGoal] = useState(0);
   const [carbGoal, setCarbGoal] = useState(0);
   const [fatGoal, setFatGoal] = useState(0);
 
-  // ───────── TODAY’S FOOD LOG (“remaining” & “consumed”) ─────────
+  // ── 3) Today’s Log State ────────────────────────────────────────────────────────────
+  const [todayEntry, setTodayEntry] = useState(null);
+  const [streakDays, setStreakDays] = useState(0);
+  const [streakToday, setStreakToday] = useState(false);
+
+  // ── 4) Logging Inputs & UI Flags ───────────────────────────────────────────────────
   const [proteinIn, setProteinIn] = useState('');
   const [carbsIn, setCarbsIn] = useState('');
   const [fatIn, setFatIn] = useState('');
-
-  // todayEntry structure: { id, total_calories, protein, carbs, fat }
-  const [todayEntry, setTodayEntry] = useState(null);
-
-  // ───────── UI STATE ─────────
-  const [loading, setLoading] = useState(true);
-  const [showQuiz, setShowQuiz] = useState(true);
-  const [submittingQuiz, setSubmittingQuiz] = useState(false);
-  const [submittingLog, setSubmittingLog] = useState(false);
-
-  // “Log Food” area visibility (hidden on login, expands when user taps “Log Food”)
-  const [logSectionVisible, setLogSectionVisible] = useState(false);
-
-  // Which “Log Food” tab is active: 'macros', 'byName', 'addFood'
-  const [activeLogTab, setActiveLogTab] = useState('macros');
-
-  // Micronutrient toggle (under “By Macros”)
-  const [showMicros, setShowMicros] = useState(false);
-  const [microIron, setMicroIron] = useState('');
-  const [microCalcium, setMicroCalcium] = useState('');
-  const [microVitC, setMicroVitC] = useState('');
-
-  // Simple “streak” and experience points logic
-  const [streakDays, setStreakDays] = useState(0);
-  const [expPoints, setExpPoints] = useState(0);
-  // Prevent awarding 500 XP more than once per day
-  const [streakToday, setStreakToday] = useState(false);
-
-  // ───────── ADD NEW FOOD STATE ─────────
+  const [foodSearch, setFoodSearch] = useState('');
+  const [matchedFood, setMatchedFood] = useState(null);
   const [newFoodName, setNewFoodName] = useState('');
   const [newServingSize, setNewServingSize] = useState('');
   const [newProtein, setNewProtein] = useState('');
   const [newCarbs, setNewCarbs] = useState('');
   const [newFat, setNewFat] = useState('');
-  const [submittingNewFood, setSubmittingNewFood] = useState(false);
+  const [activeLogTab, setActiveLogTab] = useState('macros');
 
-  // ───────── PROGRESS BAR ANIMATION ─────────
+  const [loading, setLoading] = useState(true);
+  const [showQuiz, setShowQuiz] = useState(true);
+  const [submittingQuiz, setSubmittingQuiz] = useState(false);
+  const [submittingLog, setSubmittingLog] = useState(false);
+  const [submittingNewFood, setSubmittingNewFood] = useState(false);
+  const [logSectionVisible, setLogSectionVisible] = useState(false);
+
+  // ── 5) Progress Bar Animation ──────────────────────────────────────────────────────
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  //────────────────────────────────────────────────────────────────
-  // ON MOUNT → fetch body‐fat & height, then user_goals (skip quiz if exists),
-  // then today’s calorie_logs & initialize progress. Finally hide loading spinner.
-  //────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────
+  // ON MOUNT → fetch session, then body-fat, goals, today’s logs, streak
+  // ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    (async () => {
-      await fetchBodyFatAndHeight();
-      await fetchUserGoals();
-      await fetchTodayLogs();
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session?.user) {
+        setUser(data.session.user);
+        await fetchBodyFatAndHeight(data.session.user.id);
+        await fetchUserGoals(data.session.user.id);
+        await fetchTodayLogs(data.session.user.id);
+        await fetchStreakInfo(data.session.user.id);
+      }
       setLoading(false);
-    })();
+    });
   }, []);
 
   //────────────────────────────────────────────────────────────────
-  // 1) FETCH BODY‐FAT & HEIGHT
-  //────────────────────────────────────────────────────────────────
-  async function fetchBodyFatAndHeight() {
+  async function fetchBodyFatAndHeight(uid) {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setHeightCm(null);
-        setBodyFatPercentage(null);
-        return;
-      }
-
       let { data, error } = await supabase
         .from('body_fat_entries')
-        .select('height, unit, body_fat_percentage, created_at')
-        .eq('user_id', user.id)
+        .select('height, unit')
+        .eq('user_id', uid)
         .order('created_at', { ascending: false })
-        .limit(1);
+        .limit(1)
+        .single();
 
-      if (error) {
-        console.warn('Error fetching body_fat_entries:', error.message);
+      if (error && error.code !== 'PGRST116') {
+        console.warn('Error fetching body_fat:', error.message);
         setHeightCm(null);
-        setBodyFatPercentage(null);
         return;
       }
 
-      if (data && data.length > 0) {
-        const entry = data[0];
-        let hCm =
-          entry.unit === 'imperial'
-            ? parseFloat(entry.height) * 2.54
-            : parseFloat(entry.height);
-
-        setHeightCm(hCm);
-        setBodyFatPercentage(entry.body_fat_percentage);
+      if (data) {
+        let h = parseFloat(data.height);
+        if (data.unit === 'imperial') {
+          h = h * 2.54; // inches → cm
+        }
+        setHeightCm(h);
       } else {
         setHeightCm(null);
-        setBodyFatPercentage(null);
       }
     } catch (e) {
       console.warn('Exception in fetchBodyFatAndHeight:', e.message);
       setHeightCm(null);
-      setBodyFatPercentage(null);
     }
   }
 
   //────────────────────────────────────────────────────────────────
-  // 2a) FETCH MOST RECENT user_goals → prepopulate quiz + skip it
-  //────────────────────────────────────────────────────────────────
-  async function fetchUserGoals() {
+  async function fetchUserGoals(uid) {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from('user_goals')
-        .select(`
-          id,
-          age,
-          gender,
-          height_cm,
-          current_weight,
-          target_weight,
-          activity_level,
-          goal_type,
-          daily_calories,
-          protein_goal,
-          carb_goal,
-          fat_goal,
-          created_at
-        `)
-        .eq('user_id', user.id)
+        .select('*')
+        .eq('user_id', uid)
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -184,7 +133,6 @@ export default function CalorieTracker({ isDarkMode }) {
       }
 
       if (data) {
-        // Pre‐fill all quiz fields from the most recent row
         setGoalRowId(data.id);
         setAge(data.age.toString());
         setGender(data.gender);
@@ -200,7 +148,6 @@ export default function CalorieTracker({ isDarkMode }) {
         setShowQuiz(false);
         setIsFirstGoal(false);
       } else {
-        // No existing goals → next save is “first time”
         setIsFirstGoal(true);
       }
     } catch (e) {
@@ -209,46 +156,31 @@ export default function CalorieTracker({ isDarkMode }) {
   }
 
   //────────────────────────────────────────────────────────────────
-  // 2b) FETCH TODAY’S calorie_logs (and reset streakToday if date changed)
-  //────────────────────────────────────────────────────────────────
-  async function fetchTodayLogs() {
+  async function fetchTodayLogs(uid) {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setTodayEntry(null);
-        return;
-      }
-
       const today = new Date().toISOString().split('T')[0];
-      let { data: todayLog, error: logError } = await supabase
+      let { data, error } = await supabase
         .from('calorie_logs')
-        .select(`
-          id,
-          total_calories,
-          protein_consumed,
-          carb_consumed,
-          fat_consumed
-        `)
-        .eq('user_id', user.id)
+        .select('*')
+        .eq('user_id', uid)
         .eq('log_date', today)
         .single();
 
-      // Reset our “streakToday” flag whenever we load fresh data for a new day.
       setStreakToday(false);
 
-      if (logError && logError.code !== 'PGRST116') {
-        console.warn('Error fetching today calorie_logs:', logError.message);
-      }
-
-      if (todayLog) {
+      if (error && error.code !== 'PGRST116') {
+        console.warn('Error fetching today logs:', error.message);
+        setTodayEntry(null);
+      } else if (data) {
         setTodayEntry({
-          id: todayLog.id,
-          total_calories: todayLog.total_calories,
-          protein: todayLog.protein_consumed,
-          carbs: todayLog.carb_consumed,
-          fat: todayLog.fat_consumed,
+          id: data.id,
+          total_calories: data.total_calories,
+          protein: data.protein_consumed,
+          carbs: data.carb_consumed,
+          fat: data.fat_consumed,
+          protein_goal: data.protein_goal,
+          carb_goal: data.carb_goal,
+          fat_goal: data.fat_goal,
         });
       } else {
         setTodayEntry(null);
@@ -260,44 +192,60 @@ export default function CalorieTracker({ isDarkMode }) {
   }
 
   //────────────────────────────────────────────────────────────────
+  async function fetchStreakInfo(uid) {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('calorie_logs')
+        .select('log_date, streak_days')
+        .eq('user_id', uid)
+        .order('log_date', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!error && data) {
+        setStreakDays(data.streak_days || 0);
+        if (data.log_date === today) setStreakToday(true);
+      }
+    } catch (e) {
+      console.warn('Exception in fetchStreakInfo:', e.message);
+    }
+  }
+
+  //────────────────────────────────────────────────────────────────
   // 3) SUBMIT or UPDATE QUIZ → upsert user_goals + upsert calorie_logs
-  //    (Grant 250 XP on first-time goal set)
   //────────────────────────────────────────────────────────────────
   async function handleSubmitQuiz() {
-    // 3a) Rate-limit guard (no more than 25 changes in the last hour)
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Not signed in');
-        return;
-      }
+    if (!user) {
+      Alert.alert('Not signed in');
+      return;
+    }
 
+    // rate-limit: no more than 25 changes/hour
+    try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      let { data: recentChanges, error: countError } = await supabase
+      const { count, error: countError } = await supabase
         .from('user_goal_changes')
-        .select('id', { count: 'exact' })
+        .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .gte('changed_at', oneHourAgo);
 
       if (countError) {
-        console.warn('Error counting recent goal changes:', countError.message);
+        console.warn('Error counting goal changes:', countError.message);
       }
-      const changeCount = recentChanges ? recentChanges.length : 0;
-      if (changeCount >= 25) {
+
+      if (count >= 25) {
         Alert.alert(
           'Rate Limit Exceeded',
-          'You have changed your goals 25 times in the last hour. Please wait before updating again.'
+          'You changed goals too many times. Chill for a bit.'
         );
         return;
       }
     } catch (e) {
       console.warn('Exception checking rate limit:', e.message);
-      // Fail open → let user proceed
     }
 
-    // 3b) Validate quiz fields
+    // validate fields
     const quizValid =
       heightCm != null &&
       age.trim() &&
@@ -305,23 +253,16 @@ export default function CalorieTracker({ isDarkMode }) {
       currentWeight.trim() &&
       targetWeight.trim() &&
       activityLevel;
+
     if (!quizValid) {
       Alert.alert('Please complete all quiz fields.');
       return;
     }
 
     setSubmittingQuiz(true);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Not signed in');
-        setSubmittingQuiz(false);
-        return;
-      }
 
-      // 3c) Calculate macros via Mifflin–St Jeor + activity + goal
+    try {
+      // calculate macros
       const {
         dailyCalories: calcCalories,
         protein,
@@ -336,7 +277,6 @@ export default function CalorieTracker({ isDarkMode }) {
         activityLevel
       );
 
-      // 3d) Upsert user_goals
       if (goalRowId) {
         // UPDATE existing row
         const { error: updateError } = await supabase
@@ -366,7 +306,7 @@ export default function CalorieTracker({ isDarkMode }) {
           setFatGoal(fat);
         }
       } else {
-        // INSERT a brand-new row: first-time goal set
+        // INSERT new row
         const { data: insertedGoal, error: insertError } = await supabase
           .from('user_goals')
           .insert([
@@ -394,55 +334,55 @@ export default function CalorieTracker({ isDarkMode }) {
           setSubmittingQuiz(false);
           return;
         }
+
         setGoalRowId(insertedGoal.id);
         setDailyCalories(calcCalories);
         setProteinGoal(protein);
         setCarbGoal(carbs);
         setFatGoal(fat);
 
-        // Grant 250 XP on first goal set:
         if (isFirstGoal) {
-          setExpPoints((prev) => prev + 250);
           Alert.alert('🎉 You earned 250 XP for setting your goals!');
           setIsFirstGoal(false);
         }
       }
 
-      // 3e) Log this change for rate-limit purposes (ignore any error)
+      // log change
       try {
         await supabase.from('user_goal_changes').insert([{ user_id: user.id }]);
-      } catch (logError) {
-        console.warn('Failed to log goal change:', logError.message);
+      } catch (e) {
+        console.warn('Failed to log goal change:', e.message);
       }
 
-      // 3f) Upsert “today” calorie_logs row (remaining calories = daily goal if new)
+      // upsert today’s calorie_log with the new goals
       const today = new Date().toISOString().split('T')[0];
-      let { data: existingLog, error: fetchError } = await supabase
+      let { data: existingLog, error: fetchLogError } = await supabase
         .from('calorie_logs')
-        .select('id, total_calories, protein_goal, carb_goal, fat_goal')
+        .select('*')
         .eq('user_id', user.id)
         .eq('log_date', today)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.warn('Error fetching today calorie_log:', fetchError.message);
+      if (fetchLogError && fetchLogError.code !== 'PGRST116') {
+        console.warn('Error fetching today calorie_log:', fetchLogError.message);
       }
 
       if (!existingLog) {
-        // INSERT new “today” log with macros from the newly set goal
+        // insert new today row
         const { data: insertedLog, error: insertLogError } = await supabase
           .from('calorie_logs')
           .insert([
             {
               user_id: user.id,
               log_date: today,
-              total_calories: calcCalories, // start “remaining” = daily goal
+              total_calories: calcCalories, // initial remaining calories = TDEE
               protein_goal: protein,
               carb_goal: carbs,
               fat_goal: fat,
               protein_consumed: 0,
               carb_consumed: 0,
               fat_consumed: 0,
+              streak_days: 0,
             },
           ])
           .single();
@@ -456,37 +396,42 @@ export default function CalorieTracker({ isDarkMode }) {
             protein: insertedLog.protein_consumed,
             carbs: insertedLog.carb_consumed,
             fat: insertedLog.fat_consumed,
+            protein_goal: insertedLog.protein_goal,
+            carb_goal: insertedLog.carb_goal,
+            fat_goal: insertedLog.fat_goal,
           });
         }
       } else {
-        // UPDATE the goals fields (but do NOT touch total_calories, which is “remaining”)
+        // update goals on existing row (recalculate remaining)
+        const consumedCals =
+          (existingLog.protein_consumed || 0) * 4 +
+          (existingLog.carb_consumed || 0) * 4 +
+          (existingLog.fat_consumed || 0) * 9;
+        const newRemaining = Math.max(calcCalories - consumedCals, 0);
+
         const { error: updateLogError } = await supabase
           .from('calorie_logs')
           .update({
             protein_goal: protein,
             carb_goal: carbs,
             fat_goal: fat,
+            total_calories: newRemaining,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', existingLog.id);
 
         if (updateLogError) {
-          console.warn('Error updating today calorie_log goals:', updateLogError.message);
-        }
-
-        // Refresh local state (including “remaining”)
-        let { data: updatedLog, error: updatedFetchError } = await supabase
-          .from('calorie_logs')
-          .select('id, total_calories, protein_consumed, carb_consumed, fat_consumed')
-          .eq('id', existingLog.id)
-          .single();
-
-        if (!updatedFetchError && updatedLog) {
+          console.warn('Error updating today calorie_log:', updateLogError.message);
+        } else {
           setTodayEntry({
-            id: updatedLog.id,
-            total_calories: updatedLog.total_calories,
-            protein: updatedLog.protein_consumed,
-            carbs: updatedLog.carb_consumed,
-            fat: updatedLog.fat_consumed,
+            id: existingLog.id,
+            total_calories: newRemaining,
+            protein: existingLog.protein_consumed,
+            carbs: existingLog.carb_consumed,
+            fat: existingLog.fat_consumed,
+            protein_goal: protein,
+            carb_goal: carbs,
+            fat_goal: fat,
           });
         }
       }
@@ -495,11 +440,10 @@ export default function CalorieTracker({ isDarkMode }) {
     } catch (e) {
       console.warn('Exception in handleSubmitQuiz:', e.message);
     }
+
     setSubmittingQuiz(false);
   }
 
-  //────────────────────────────────────────────────────────────────
-  // 4) CALCULATE MACROS (Mifflin–St Jeor + activity + goal adjustment)
   //────────────────────────────────────────────────────────────────
   function calculateMacros(
     weightLbs,
@@ -557,55 +501,54 @@ export default function CalorieTracker({ isDarkMode }) {
   }
 
   //────────────────────────────────────────────────────────────────
-  // 5a) MANUAL FOOD LOGGING (By Macros) → SUBTRACT from total_calories
-  //     (Also handles streak & 500 XP awarding)
+  // 5a) Manual food logging (by macros)
   //────────────────────────────────────────────────────────────────
   async function handleSubmitFoodLog_ByMacros() {
+    if (!user) {
+      Alert.alert('Not signed in');
+      return;
+    }
+
     if (!proteinIn.trim() || !carbsIn.trim() || !fatIn.trim()) {
       Alert.alert('Please fill in protein, carbs, and fat.');
       return;
     }
+
+    const protVal = parseFloat(proteinIn);
+    const carbVal = parseFloat(carbsIn);
+    const fatVal = parseFloat(fatIn);
+    if (isNaN(protVal) || isNaN(carbVal) || isNaN(fatVal)) {
+      Alert.alert('Macros must be valid numbers.');
+      return;
+    }
+
+    if (dailyCalories <= 0) {
+      await fetchUserGoals(user.id);
+      if (dailyCalories <= 0) {
+        Alert.alert('Set your goals before logging food.');
+        return;
+      }
+    }
+
     setSubmittingLog(true);
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Not signed in');
-        setSubmittingLog(false);
-        return;
-      }
-
       const today = new Date().toISOString().split('T')[0];
-      // Derive calories from macros: 4 kcal/g (protein & carbs), 9 kcal/g (fat)
-      const protVal = parseInt(proteinIn, 10);
-      const carbVal = parseInt(carbsIn, 10);
-      const fatVal = parseInt(fatIn, 10);
-      const calsVal = protVal * 4 + carbVal * 4 + fatVal * 9;
-
-      // 5a.i) Fetch (or create) “today’s” row
       let { data: existingLog, error: fetchError } = await supabase
         .from('calorie_logs')
-        .select(`
-          id,
-          total_calories,
-          protein_consumed,
-          carb_consumed,
-          fat_consumed
-        `)
+        .select('*')
         .eq('user_id', user.id)
         .eq('log_date', today)
         .single();
 
       if (fetchError && fetchError.code !== 'PGRST116') {
-        console.warn('Error fetching today’s calorie_log:', fetchError.message);
+        console.warn('Error fetching today log:', fetchError.message);
         setSubmittingLog(false);
         return;
       }
 
       if (!existingLog) {
-        // No “today” row yet → create it with current goal’s macros
+        // pull latest goals
         const { data: ug, error: ugError } = await supabase
           .from('user_goals')
           .select('daily_calories, protein_goal, carb_goal, fat_goal')
@@ -615,7 +558,7 @@ export default function CalorieTracker({ isDarkMode }) {
           .single();
 
         if (ugError) {
-          console.warn('Error fetching user_goals for new log:', ugError.message);
+          console.warn('Error fetching goals:', ugError.message);
           setSubmittingLog(false);
           return;
         }
@@ -630,110 +573,128 @@ export default function CalorieTracker({ isDarkMode }) {
           protein_consumed: 0,
           carb_consumed: 0,
           fat_consumed: 0,
+          streak_days: 0,
         };
-        let { data: insertedLog, error: insertLogError } = await supabase
+
+        let { data: insertedLog, error: insertError } = await supabase
           .from('calorie_logs')
           .insert([insertPayload])
           .single();
 
-        if (insertLogError) {
-          console.warn('Error inserting today calorie_log:', insertLogError.message);
+        if (insertError) {
+          console.warn('Error inserting today log:', insertError.message);
           setSubmittingLog(false);
           return;
         }
         existingLog = insertedLog;
       }
 
-      // 5a.ii) Subtract derived calories from “remaining”
-      let newRemaining = (existingLog.total_calories || 0) - calsVal;
-      if (newRemaining < 0) newRemaining = 0; // Clamp at zero
+      // compute new totals
+      const newProtein = (existingLog.protein_consumed || 0) + protVal;
+      const newCarbs = (existingLog.carb_consumed || 0) + carbVal;
+      const newFat = (existingLog.fat_consumed || 0) + fatVal;
+      const consumedCals = newProtein * 4 + newCarbs * 4 + newFat * 9;
+      const newRemaining = Math.max(dailyCalories - consumedCals, 0);
 
       const updatedTotals = {
         total_calories: newRemaining,
-        protein_consumed: (existingLog.protein_consumed || 0) + protVal,
-        carb_consumed: (existingLog.carb_consumed || 0) + carbVal,
-        fat_consumed: (existingLog.fat_consumed || 0) + fatVal,
+        protein_consumed: newProtein,
+        carb_consumed: newCarbs,
+        fat_consumed: newFat,
+        updated_at: new Date().toISOString(),
       };
 
-      const { error: updateError } = await supabase
+      const { data: updatedLog, error: updateError } = await supabase
         .from('calorie_logs')
         .update(updatedTotals)
-        .eq('id', existingLog.id);
+        .eq('id', existingLog.id)
+        .single();
 
       if (updateError) {
-        console.warn('Error updating today calorie_log:', updateError.message);
-      } else {
-        // 5a.iii) Update local state so UI immediately shows new remaining
+        console.warn('Error updating today log:', updateError.message);
+      } else if (updatedLog) {
         setTodayEntry({
-          id: existingLog.id,
-          total_calories: updatedTotals.total_calories,
-          protein: updatedTotals.protein_consumed,
-          carbs: updatedTotals.carb_consumed,
-          fat: updatedTotals.fat_consumed,
+          id: updatedLog.id,
+          total_calories: updatedLog.total_calories,
+          protein: updatedLog.protein_consumed,
+          carbs: updatedLog.carb_consumed,
+          fat: updatedLog.fat_consumed,
+          protein_goal: updatedLog.protein_goal,
+          carb_goal: updatedLog.carb_goal,
+          fat_goal: updatedLog.fat_goal,
         });
       }
 
-      // 5a.iv) Clear the macro inputs & collapse micros
+      // re-fetch so UI is always fresh
+      await fetchTodayLogs(user.id);
+
+      // reset inputs & animate
       setProteinIn('');
       setCarbsIn('');
       setFatIn('');
-      setShowMicros(false);
-
-      // 5a.v) Animate the progress bar
       animateProgress();
 
-      // 5a.vi) If remaining calories ≤ 0 and we haven't awarded streak/XP today:
-      if (updatedTotals.total_calories <= 0 && !streakToday) {
-        setStreakDays((prev) => prev + 1);
-        setExpPoints((prev) => prev + 500);
-        Alert.alert(
-          '✅ Congratulations!',
-          'You’ve consumed 100% of your calories. +500 XP, streak started!'
-        );
-        setStreakToday(true);
+      if (!streakToday) {
+        const newStreak = await updateDailyStreak(user.id);
+        if (newStreak !== null) {
+          setStreakDays(newStreak);
+          Alert.alert('✅ Congrats!', `Streak is now ${newStreak} days.`);
+          setStreakToday(true);
+        }
       }
     } catch (e) {
       console.warn('Exception in handleSubmitFoodLog_ByMacros:', e.message);
     }
+
     setSubmittingLog(false);
   }
 
   //────────────────────────────────────────────────────────────────
-  // 5b) LOG FOOD BY NAME → simple lookup from a demo “foods” array
-  //      → autofill macros and subtract just like ByMacros
+  // 5b) Lookup food by name
   //────────────────────────────────────────────────────────────────
-
-  // Demo array is for local‐testing only. In production, replace this with a Supabase fetch from your “foods” table.
-  const FOOD_DB = [
-    { name: 'Banana', protein: 1, carbs: 27, fat: 0.3 },
-    { name: 'Chicken (100g)', protein: 31, carbs: 0, fat: 3.6 },
-    { name: 'Apple', protein: 0.3, carbs: 25, fat: 0.2 },
-    { name: 'Rice (100g)', protein: 2.7, carbs: 28, fat: 0.3 },
-  ];
-  const [foodSearch, setFoodSearch] = useState('');
-  const [matchedFood, setMatchedFood] = useState(null);
-
-  function handleFoodLookup() {
-    const found = FOOD_DB.find(
-      (f) => f.name.toLowerCase() === foodSearch.trim().toLowerCase()
-    );
-    if (!found) {
-      Alert.alert('Not found', 'That food name is not in our demo database.');
-      setMatchedFood(null);
+  async function handleFoodLookup() {
+    if (!user) {
+      Alert.alert('Not signed in');
       return;
     }
-    setMatchedFood(found);
+    if (!foodSearch.trim()) {
+      Alert.alert('Enter a food name to search.');
+      return;
+    }
 
-    // Auto-fill macros (so we can call handleSubmitFoodLog_ByMacros() immediately)
-    setProteinIn(found.protein.toString());
-    setCarbsIn(found.carbs.toString());
-    setFatIn(found.fat.toString());
+    try {
+      const { data, error } = await supabase
+        .from('foods')
+        .select('name, protein, carbs, fat')
+        .ilike('name', `%${foodSearch.trim()}%`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !data) {
+        Alert.alert('Not found', 'That food is not in your database.');
+        setMatchedFood(null);
+        return;
+      }
+
+      setMatchedFood(data);
+      setProteinIn(data.protein.toString());
+      setCarbsIn(data.carbs.toString());
+      setFatIn(data.fat.toString());
+      setActiveLogTab('macros');
+    } catch (e) {
+      console.warn('Exception in handleFoodLookup:', e.message);
+    }
   }
 
   //────────────────────────────────────────────────────────────────
-  // 5c) ADD NEW FOOD TO DATABASE WITH RATE LIMIT (5 per hour)
+  // 5c) Add new food (rate-limit 5/hour)
   //────────────────────────────────────────────────────────────────
   async function handleAddNewFood() {
+    if (!user) {
+      Alert.alert('Not signed in');
+      return;
+    }
     if (
       !newFoodName.trim() ||
       !newServingSize.trim() ||
@@ -745,7 +706,6 @@ export default function CalorieTracker({ isDarkMode }) {
       return;
     }
 
-    // Validate numeric fields
     const protVal = parseFloat(newProtein);
     const carbVal = parseFloat(newCarbs);
     const fatVal = parseFloat(newFat);
@@ -755,38 +715,28 @@ export default function CalorieTracker({ isDarkMode }) {
     }
 
     setSubmittingNewFood(true);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Not signed in');
-        setSubmittingNewFood(false);
-        return;
-      }
 
-      // Rate-limit: no more than 5 foods added in the last hour
+    try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      let { data: recentFoods, error: countError } = await supabase
+      const { count, error: countError } = await supabase
         .from('foods')
-        .select('id', { count: 'exact' })
+        .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .gte('created_at', oneHourAgo);
 
       if (countError) {
         console.warn('Error counting recent foods:', countError.message);
       }
-      const foodCount = recentFoods ? recentFoods.length : 0;
-      if (foodCount >= 5) {
+
+      if (count >= 5) {
         Alert.alert(
           'Rate Limit Exceeded',
-          'You have added 5 foods in the last hour. Please wait before adding more.'
+          'You added 5 foods in the last hour. Chill for a bit.'
         );
         setSubmittingNewFood(false);
         return;
       }
 
-      // Insert new food
       const { error: insertError } = await supabase
         .from('foods')
         .insert([
@@ -804,22 +754,24 @@ export default function CalorieTracker({ isDarkMode }) {
         console.warn('Error inserting new food:', insertError.message);
         Alert.alert('Error adding food:', insertError.message);
       } else {
-        Alert.alert('Success', `${newFoodName.trim()} added to your foods!`);
-        // Clear form
+        Alert.alert('Success!', `${newFoodName.trim()} added.`);
         setNewFoodName('');
         setNewServingSize('');
         setNewProtein('');
         setNewCarbs('');
         setNewFat('');
+        setActiveLogTab('byName');
+        setMatchedFood(null);
       }
     } catch (e) {
       console.warn('Exception in handleAddNewFood:', e.message);
     }
+
     setSubmittingNewFood(false);
   }
 
   //────────────────────────────────────────────────────────────────
-  // 6) ANIMATE PROGRESS BAR
+  // Animate progress bar
   //────────────────────────────────────────────────────────────────
   function animateProgress() {
     if (!todayEntry || dailyCalories <= 0) {
@@ -837,15 +789,14 @@ export default function CalorieTracker({ isDarkMode }) {
     }).start();
   }
 
-  // Re-run animation whenever todayEntry or dailyCalories changes
   useEffect(() => {
     if (!showQuiz) {
       animateProgress();
     }
-  }, [todayEntry, dailyCalories]);
+  }, [todayEntry, dailyCalories, showQuiz]);
 
   //────────────────────────────────────────────────────────────────
-  // RENDER QUIZ SECTION (Goal-Setting)
+  // RENDER QUIZ (goal‐setting)
   //────────────────────────────────────────────────────────────────
   function renderQuizSection() {
     const quizValid =
@@ -865,25 +816,49 @@ export default function CalorieTracker({ isDarkMode }) {
           paddingTop: 15,
         }}
       >
-        <View style={[styles.goalSection, isDarkMode ? {} : styles.goalSectionLight]}>
-          <Text style={[styles.goalTitle, isDarkMode ? {} : styles.goalTitleLight]}>
+        <View
+          style={[
+            styles.goalSection,
+            isDarkMode ? {} : styles.goalSectionLight,
+          ]}
+        >
+          <Text
+            style={[
+              styles.goalTitle,
+              isDarkMode ? {} : styles.goalTitleLight,
+            ]}
+          >
             Tell Us About Yourself
           </Text>
 
           {heightCm == null ? (
-            <Text style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}>
-              ⚠️ We don’t have your height on file. Please calculate your Body-Fat first in the
-              Body screen.
+            <Text
+              style={[
+                styles.calorieSubtext,
+                isDarkMode ? {} : styles.calorieSubtextLight,
+              ]}
+            >
+              ⚠️ We don’t have your height on file. Calculate body fat first.
             </Text>
           ) : (
-            <Text style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}>
+            <Text
+              style={[
+                styles.calorieSubtext,
+                isDarkMode ? {} : styles.calorieSubtextLight,
+              ]}
+            >
               Your Height: {heightCm.toFixed(0)} cm
             </Text>
           )}
 
           {/* AGE */}
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? {} : styles.inputLabelLight,
+              ]}
+            >
               Age
             </Text>
             <TextInput
@@ -899,7 +874,12 @@ export default function CalorieTracker({ isDarkMode }) {
 
           {/* GENDER */}
           <View style={[styles.inputGroup, { marginTop: 10 }]}>
-            <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? {} : styles.inputLabelLight,
+              ]}
+            >
               Gender
             </Text>
             <View style={styles.genderButtons}>
@@ -933,7 +913,12 @@ export default function CalorieTracker({ isDarkMode }) {
 
           {/* CURRENT WEIGHT */}
           <View style={[styles.inputGroup, { marginTop: 12 }]}>
-            <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? {} : styles.inputLabelLight,
+              ]}
+            >
               Current Weight (lbs)
             </Text>
             <TextInput
@@ -949,7 +934,12 @@ export default function CalorieTracker({ isDarkMode }) {
 
           {/* TARGET WEIGHT */}
           <View style={[styles.inputGroup, { marginTop: 12 }]}>
-            <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? {} : styles.inputLabelLight,
+              ]}
+            >
               Target Weight (lbs)
             </Text>
             <TextInput
@@ -965,7 +955,12 @@ export default function CalorieTracker({ isDarkMode }) {
 
           {/* ACTIVITY LEVEL */}
           <View style={[styles.inputGroup, { marginTop: 12 }]}>
-            <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+            <Text
+              style={[
+                styles.inputLabel,
+                isDarkMode ? {} : styles.inputLabelLight,
+              ]}
+            >
               Activity Level
             </Text>
             <View style={styles.unitButtons}>
@@ -1058,8 +1053,7 @@ export default function CalorieTracker({ isDarkMode }) {
   }
 
   //────────────────────────────────────────────────────────────────
-  // RENDER TRACKER (AFTER QUIZ)
-  // Separating “Remaining Calories” and “Log Food” into two distinct sections.
+  // RENDER TRACKER (after quiz)
   //────────────────────────────────────────────────────────────────
   function renderTrackerUI() {
     const remainingCals = todayEntry?.total_calories ?? 0;
@@ -1068,13 +1062,12 @@ export default function CalorieTracker({ isDarkMode }) {
     const consumedCarb = todayEntry?.carbs ?? 0;
     const consumedFat = todayEntry?.fat ?? 0;
 
-    // Derived calories (for autocomplete in “By Food Name”)
     const derivedCalories =
-      (parseInt(proteinIn || '0', 10) * 4) +
-      (parseInt(carbsIn || '0', 10) * 4) +
-      (parseInt(fatIn || '0', 10) * 9);
+      parseInt(proteinIn || '0', 10) * 4 +
+      parseInt(carbsIn || '0', 10) * 4 +
+      parseInt(fatIn || '0', 10) * 9;
 
-    // Ratio for progress bar
+    // ratio for progress bar
     const ratio =
       todayEntry && dailyCalories > 0
         ? Math.max(0, Math.min((dailyCalories - remainingCals) / dailyCalories, 1))
@@ -1087,7 +1080,7 @@ export default function CalorieTracker({ isDarkMode }) {
 
     return (
       <View style={{ flex: 1 }}>
-        {/* ─── HEADER ROW ─── */}
+        {/* HEADER ROW */}
         <View style={trackerStyles.headerRow}>
           <Text
             style={[
@@ -1126,7 +1119,7 @@ export default function CalorieTracker({ isDarkMode }) {
           contentContainerStyle={{ paddingBottom: 120 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* ─── CALORIES OVERVIEW (BOX) ─── */}
+          {/* CALORIES OVERVIEW */}
           <View
             style={[
               styles.calorieOverview,
@@ -1137,7 +1130,10 @@ export default function CalorieTracker({ isDarkMode }) {
             <View style={styles.calorieHeader}>
               <View>
                 <Text
-                  style={[styles.calorieLabel, isDarkMode ? {} : styles.calorieLabelLight]}
+                  style={[
+                    styles.calorieLabel,
+                    isDarkMode ? {} : styles.calorieLabelLight,
+                  ]}
                 >
                   Remaining Calories
                 </Text>
@@ -1231,15 +1227,15 @@ export default function CalorieTracker({ isDarkMode }) {
               </View>
             </View>
 
-            {/* ── MICRONUTRIENT TOGGLE ── */}
+            {/* MICRONUTRIENT TOGGLE */}
             <TouchableOpacity
               style={[
                 { flexDirection: 'row', alignItems: 'center', marginTop: 12, marginLeft: 4 },
               ]}
-              onPress={() => setShowMicros((prev) => !prev)}
+              onPress={() => {}}
             >
               <Ionicons
-                name={showMicros ? 'chevron-down-circle' : 'chevron-up-circle'}
+                name="chevron-up-circle"
                 size={20}
                 color={isDarkMode ? '#fff' : '#000'}
               />
@@ -1251,33 +1247,25 @@ export default function CalorieTracker({ isDarkMode }) {
                   color: isDarkMode ? '#fff' : '#000',
                 }}
               >
-                {showMicros ? 'Hide Micronutrients' : 'View Micronutrients'}
+                View Micronutrients
               </Text>
             </TouchableOpacity>
 
-            {showMicros && (
-              <View style={{ marginTop: 8, marginLeft: 28 }}>
-                {/* Placeholder values: replace “—” with real data once DB is ready */}
-                <Text
-                  style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}
-                >
-                  Iron: — mg
-                </Text>
-                <Text
-                  style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}
-                >
-                  Calcium: — mg
-                </Text>
-                <Text
-                  style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}
-                >
-                  Vitamin C: — mg
-                </Text>
-              </View>
-            )}
+            {/* (Leave micronutrients as placeholders for now) */}
+            <View style={{ marginTop: 8, marginLeft: 28 }}>
+              <Text style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}>
+                Iron: — mg
+              </Text>
+              <Text style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}>
+                Calcium: — mg
+              </Text>
+              <Text style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}>
+                Vitamin C: — mg
+              </Text>
+            </View>
           </View>
 
-          {/* ─── “Log Food” Toggle Button (Outside of the Calories Box) ─── */}
+          {/* “Log Food” Toggle */}
           <TouchableOpacity
             style={[
               trackerStyles.accordionToggle,
@@ -1301,11 +1289,16 @@ export default function CalorieTracker({ isDarkMode }) {
             </Text>
           </TouchableOpacity>
 
-          {/* ─── LOG FOOD AREA (Hidden if logSectionVisible=false) ─── */}
+          {/* LOG FOOD AREA */}
           {logSectionVisible && (
             <View style={{ marginTop: 12 }}>
-              {/* ─── LOG TABS ─── */}
-              <View style={trackerStyles.logTabsContainer}>
+              {/* LOG TABS */}
+              <View
+                style={[
+                  trackerStyles.logTabsContainer,
+                  isDarkMode ? {} : trackerStyles.logTabsContainerLight,
+                ]}
+              >
                 <TouchableOpacity
                   style={[
                     trackerStyles.logTab,
@@ -1316,6 +1309,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   <Text
                     style={[
                       trackerStyles.logTabText,
+                      isDarkMode ? {} : trackerStyles.logTabTextLight,
                       activeLogTab === 'macros' && trackerStyles.logTabTextActive,
                     ]}
                   >
@@ -1332,6 +1326,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   <Text
                     style={[
                       trackerStyles.logTabText,
+                      isDarkMode ? {} : trackerStyles.logTabTextLight,
                       activeLogTab === 'byName' && trackerStyles.logTabTextActive,
                     ]}
                   >
@@ -1348,6 +1343,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   <Text
                     style={[
                       trackerStyles.logTabText,
+                      isDarkMode ? {} : trackerStyles.logTabTextLight,
                       activeLogTab === 'addFood' && trackerStyles.logTabTextActive,
                     ]}
                   >
@@ -1356,7 +1352,7 @@ export default function CalorieTracker({ isDarkMode }) {
                 </TouchableOpacity>
               </View>
 
-              {/* ─── LOG BY MACROS ─── */}
+              {/* LOG BY MACROS */}
               {activeLogTab === 'macros' && (
                 <View
                   style={[
@@ -1368,10 +1364,7 @@ export default function CalorieTracker({ isDarkMode }) {
                   {/* HEADER */}
                   <View style={trackerStyles.accordionHeader}>
                     <Text
-                      style={[
-                        styles.foodSectionTitle,
-                        isDarkMode ? {} : styles.foodSectionTitleLight,
-                      ]}
+                      style={[styles.foodSectionTitle, isDarkMode ? {} : styles.foodSectionTitleLight]}
                     >
                       Manual Food Log
                     </Text>
@@ -1379,7 +1372,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* PROTEIN */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Protein (g)
                     </Text>
                     <TextInput
@@ -1394,7 +1389,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* CARBS */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Carbs (g)
                     </Text>
                     <TextInput
@@ -1409,7 +1406,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* FAT */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Fat (g)
                     </Text>
                     <TextInput
@@ -1422,12 +1421,12 @@ export default function CalorieTracker({ isDarkMode }) {
                     />
                   </View>
 
-                  {/* DERIVED CALORIES (read-only) */}
+                  {/* DERIVED CALORIES */}
                   <View style={{ marginTop: 12 }}>
                     <Text
                       style={[styles.calorieLabel, isDarkMode ? {} : styles.calorieLabelLight]}
                     >
-                      Calories (auto-calculated)
+                      Calories (auto‐calculated)
                     </Text>
                     <Text
                       style={[
@@ -1440,80 +1439,7 @@ export default function CalorieTracker({ isDarkMode }) {
                     </Text>
                   </View>
 
-                  {/* MICRONUTRIENT TOGGLE */}
-                  <TouchableOpacity
-                    style={[
-                      trackerStyles.microsToggle,
-                      isDarkMode ? {} : trackerStyles.microsToggleLight,
-                    ]}
-                    onPress={() => setShowMicros((prev) => !prev)}
-                  >
-                    <Ionicons
-                      name={showMicros ? 'chevron-down-circle' : 'chevron-up-circle'}
-                      size={20}
-                      color={isDarkMode ? '#fff' : '#000'}
-                    />
-                    <Text
-                      style={[
-                        trackerStyles.microsToggleText,
-                        isDarkMode ? {} : trackerStyles.microsToggleTextLight,
-                      ]}
-                    >
-                      {showMicros ? 'Hide Micronutrients' : 'Add Micronutrients'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {showMicros && (
-                    <View style={{ marginTop: 10 }}>
-                      <View style={[styles.inputGroup, { marginBottom: 10 }]}>
-                        <Text
-                          style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
-                        >
-                          Iron (mg)
-                        </Text>
-                        <TextInput
-                          style={[styles.input, isDarkMode ? {} : styles.inputLight]}
-                          placeholder="e.g. 8"
-                          placeholderTextColor={isDarkMode ? '#666' : '#999'}
-                          keyboardType="numeric"
-                          value={microIron}
-                          onChangeText={setMicroIron}
-                        />
-                      </View>
-                      <View style={[styles.inputGroup, { marginBottom: 10 }]}>
-                        <Text
-                          style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
-                        >
-                          Calcium (mg)
-                        </Text>
-                        <TextInput
-                          style={[styles.input, isDarkMode ? {} : styles.inputLight]}
-                          placeholder="e.g. 300"
-                          placeholderTextColor={isDarkMode ? '#666' : '#999'}
-                          keyboardType="numeric"
-                          value={microCalcium}
-                          onChangeText={setMicroCalcium}
-                        />
-                      </View>
-                      <View style={styles.inputGroup}>
-                        <Text
-                          style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
-                        >
-                          Vitamin C (mg)
-                        </Text>
-                        <TextInput
-                          style={[styles.input, isDarkMode ? {} : styles.inputLight]}
-                          placeholder="e.g. 60"
-                          placeholderTextColor={isDarkMode ? '#666' : '#999'}
-                          keyboardType="numeric"
-                          value={microVitC}
-                          onChangeText={setMicroVitC}
-                        />
-                      </View>
-                    </View>
-                  )}
-
-                  {/* SUBMIT BUTTON (“Log This Meal”) */}
+                  {/* SUBMIT BUTTON */}
                   <TouchableOpacity
                     style={[
                       styles.setGoalBtn,
@@ -1534,10 +1460,26 @@ export default function CalorieTracker({ isDarkMode }) {
                       <Text style={styles.setGoalBtnText}>Log This Meal</Text>
                     )}
                   </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.setGoalBtn,
+                      {
+                        marginTop: 12,
+                        backgroundColor: '#444',
+                        alignSelf: 'center',
+                        paddingHorizontal: 24,
+                        paddingVertical: 12,
+                      },
+                    ]}
+                    onPress={() => setActiveLogTab('byName')}
+                  >
+                    <Text style={styles.setGoalBtnText}>Search My Foods</Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
-              {/* ─── LOG BY FOOD NAME ─── */}
+              {/* LOG BY FOOD NAME */}
               {activeLogTab === 'byName' && (
                 <View
                   style={[
@@ -1546,21 +1488,18 @@ export default function CalorieTracker({ isDarkMode }) {
                     { marginHorizontal: 20, marginTop: 8 },
                   ]}
                 >
-                  {/* HEADER */}
                   <View style={trackerStyles.accordionHeader}>
                     <Text
-                      style={[
-                        styles.foodSectionTitle,
-                        isDarkMode ? {} : styles.foodSectionTitleLight,
-                      ]}
+                      style={[styles.foodSectionTitle, isDarkMode ? {} : styles.foodSectionTitleLight]}
                     >
                       Search Food
                     </Text>
                   </View>
 
-                  {/* FOOD NAME INPUT */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Food Name
                     </Text>
                     <TextInput
@@ -1582,14 +1521,26 @@ export default function CalorieTracker({ isDarkMode }) {
                     <Text style={styles.setGoalBtnText}>Lookup</Text>
                   </TouchableOpacity>
 
-                  {/* If matchedFood, show its macros & allow “Log <Food>” */}
+                  <TouchableOpacity
+                    style={[
+                      styles.setGoalBtn,
+                      {
+                        marginTop: 12,
+                        backgroundColor: '#444',
+                        alignSelf: 'center',
+                        paddingHorizontal: 24,
+                        paddingVertical: 12,
+                      },
+                    ]}
+                    onPress={() => setActiveLogTab('addFood')}
+                  >
+                    <Text style={styles.setGoalBtnText}>Add New Food</Text>
+                  </TouchableOpacity>
+
                   {matchedFood && (
                     <View style={{ marginTop: 16 }}>
                       <Text
-                        style={[
-                          styles.calorieLabel,
-                          isDarkMode ? {} : styles.calorieLabelLight,
-                        ]}
+                        style={[styles.calorieLabel, isDarkMode ? {} : styles.calorieLabelLight]}
                       >
                         {matchedFood.name}:
                       </Text>
@@ -1600,14 +1551,10 @@ export default function CalorieTracker({ isDarkMode }) {
                           { marginVertical: 6 },
                         ]}
                       >
-                        P: {matchedFood.protein}g • C: {matchedFood.carbs}g • F:{' '}
-                        {matchedFood.fat}g
+                        P: {matchedFood.protein}g • C: {matchedFood.carbs}g • F: {matchedFood.fat}g
                       </Text>
                       <TouchableOpacity
-                        style={[
-                          styles.setGoalBtn,
-                          { backgroundColor: '#1abc9c', alignSelf: 'center' },
-                        ]}
+                        style={[styles.setGoalBtn, { backgroundColor: '#1abc9c', alignSelf: 'center' }]}
                         onPress={handleSubmitFoodLog_ByMacros}
                         disabled={submittingLog}
                       >
@@ -1622,7 +1569,7 @@ export default function CalorieTracker({ isDarkMode }) {
                 </View>
               )}
 
-              {/* ─── ADD NEW FOOD ─── */}
+              {/* ADD NEW FOOD */}
               {activeLogTab === 'addFood' && (
                 <View
                   style={[
@@ -1631,13 +1578,9 @@ export default function CalorieTracker({ isDarkMode }) {
                     { marginHorizontal: 20, marginTop: 8 },
                   ]}
                 >
-                  {/* HEADER */}
                   <View style={trackerStyles.accordionHeader}>
                     <Text
-                      style={[
-                        styles.foodSectionTitle,
-                        isDarkMode ? {} : styles.foodSectionTitleLight,
-                      ]}
+                      style={[styles.foodSectionTitle, isDarkMode ? {} : styles.foodSectionTitleLight]}
                     >
                       Add New Food
                     </Text>
@@ -1645,7 +1588,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* FOOD NAME */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Food Name
                     </Text>
                     <TextInput
@@ -1659,7 +1604,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* SERVING SIZE */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Serving Size (e.g. 1 cup)
                     </Text>
                     <TextInput
@@ -1673,7 +1620,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* PROTEIN */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Protein (g)
                     </Text>
                     <TextInput
@@ -1688,7 +1637,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* CARBS */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Carbs (g)
                     </Text>
                     <TextInput
@@ -1703,7 +1654,9 @@ export default function CalorieTracker({ isDarkMode }) {
 
                   {/* FAT */}
                   <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                    <Text style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}>
+                    <Text
+                      style={[styles.inputLabel, isDarkMode ? {} : styles.inputLabelLight]}
+                    >
                       Fat (g)
                     </Text>
                     <TextInput
@@ -1716,7 +1669,7 @@ export default function CalorieTracker({ isDarkMode }) {
                     />
                   </View>
 
-                  {/* SUBMIT BUTTON (“Add New Food”) */}
+                  {/* SUBMIT BUTTON */}
                   <TouchableOpacity
                     style={[
                       styles.setGoalBtn,
@@ -1737,19 +1690,32 @@ export default function CalorieTracker({ isDarkMode }) {
                       <Text style={styles.setGoalBtnText}>Add New Food</Text>
                     )}
                   </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.setGoalBtn,
+                      {
+                        marginTop: 12,
+                        backgroundColor: '#444',
+                        alignSelf: 'center',
+                        paddingHorizontal: 24,
+                        paddingVertical: 12,
+                      },
+                    ]}
+                    onPress={() => setActiveLogTab('byName')}
+                  >
+                    <Text style={styles.setGoalBtnText}>Back to Search</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
           )}
 
-          {/* ─── TODAY’S LOG SUMMARY ─── */}
+          {/* TODAY’S LOG SUMMARY */}
           {todayEntry && (
             <View style={{ marginTop: 24, marginHorizontal: 20 }}>
               <Text
-                style={[
-                  styles.foodSectionTitle,
-                  isDarkMode ? {} : styles.foodSectionTitleLight,
-                ]}
+                style={[styles.foodSectionTitle, isDarkMode ? {} : styles.foodSectionTitleLight]}
               >
                 Today’s Totals
               </Text>
@@ -1762,37 +1728,32 @@ export default function CalorieTracker({ isDarkMode }) {
               >
                 <View>
                   <Text
-                    style={[
-                      styles.loggedFoodName,
-                      isDarkMode ? {} : styles.loggedFoodNameLight,
-                    ]}
+                    style={[styles.loggedFoodName, isDarkMode ? {} : styles.loggedFoodNameLight]}
                   >
                     Remaining Calories: {todayEntry.total_calories.toFixed(0)}
                   </Text>
                   <Text
-                    style={[
-                      styles.loggedFoodMacros,
-                      isDarkMode ? {} : styles.loggedFoodMacrosLight,
-                    ]}
+                    style={[styles.loggedFoodMacros, isDarkMode ? {} : styles.loggedFoodMacrosLight]}
                   >
-                    P: {todayEntry.protein.toFixed(0)}g • C: {todayEntry.carbs.toFixed(0)}g • F:{' '}
-                    {todayEntry.fat.toFixed(0)}g
+                    P: {todayEntry.protein.toFixed(0)}g • C: {todayEntry.carbs.toFixed(0)}g • F: {todayEntry.fat.toFixed(0)}g
+                  </Text>
+                  <Text
+                    style={[styles.calorieSubtext, isDarkMode ? {} : styles.calorieSubtextLight]}
+                  >
+                    Goals → P: {todayEntry.protein_goal}g, C: {todayEntry.carb_goal}g, F: {todayEntry.fat_goal}g
                   </Text>
                 </View>
               </View>
             </View>
           )}
 
-          {/* Add some bottom padding so last content isn’t cut off */}
+          {/* bottom padding */}
           <View style={{ height: 60 }} />
         </ScrollView>
       </View>
     );
   }
 
-  //────────────────────────────────────────────────────────────────
-  // MAIN RENDER: LOADING → QUIZ → TRACKER
-  //────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={internalStyles.loadingContainer}>
@@ -1813,9 +1774,6 @@ const internalStyles = StyleSheet.create({
   },
 });
 
-// ─────────────────────────────────────────────────────────────────
-// New styles specific to the tracker UI (tabs, toggles, etc.)
-// ─────────────────────────────────────────────────────────────────
 const trackerStyles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
@@ -1859,26 +1817,34 @@ const trackerStyles = StyleSheet.create({
   logTabsContainer: {
     flexDirection: 'row',
     marginHorizontal: 20,
-    marginBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#222',
+  },
+  logTabsContainerLight: {
+    backgroundColor: '#f8f9fa',
+    borderColor: '#ccc',
   },
   logTab: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
   },
   logTabActive: {
-    borderBottomColor: '#1abc9c',
+    backgroundColor: '#1abc9c',
   },
   logTabText: {
     color: '#aaa',
     fontSize: 16,
   },
+  logTabTextLight: {
+    color: '#555',
+  },
   logTabTextActive: {
-    color: '#1abc9c',
+    color: '#fff',
     fontWeight: '600',
   },
   accordionToggle: {
@@ -1906,22 +1872,5 @@ const trackerStyles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
-  },
-  microsToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  microsToggleLight: {
-    // no background change, just text changes via microsToggleTextLight
-  },
-  microsToggleText: {
-    color: '#1abc9c',
-    fontSize: 14,
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  microsToggleTextLight: {
-    color: '#1abc9c',
   },
 });

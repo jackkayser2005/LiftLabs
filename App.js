@@ -9,18 +9,24 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  Alert,
   Modal,
   ActivityIndicator,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import * as FileSystem from 'expo-file-system';
 import { VideoView as Video } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 
 import { LinearGradient } from 'expo-linear-gradient';
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import SubscriptionScreen from './SubscriptionScreen';
+import { registerForPushNotificationsAsync, scheduleTestNotification } from './lib/notifications';
 
 import SignInScreen from './SignInScreen';
 import SignUpScreen from './SignUpScreen';
@@ -28,15 +34,24 @@ import ProfileScreen from './ProfileScreen';
 import BodyFatCalculator from './body-fat';
 import CalorieTracker from './CalorieTracker';
 import Leaderboard from './leaderboard';
+import RealTimeVideo from './RealTimeVideo';
+import RankScreen from './RankScreen';
+import ChallengesScreen from './ChallengesScreen';
 
 import styles from './styles';      // your existing global styles
 import popUpStyles from './popUpStyles';  // new banner styles
+import TopBar from './components/TopBar';
 import { supabase } from './supabaseClient';
+import { updateDailyStreak } from './lib/streak'; // <--- new import
+
+const LIVE_WORKOUT_ENABLED = true;
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [view, setView] = useState('signIn');
   const [loading, setLoading] = useState(true);
+  const [isPro, setIsPro] = useState(false);
+  const [pushToken, setPushToken] = useState(null);
 
   // welcome banner state
   const [showWelcome, setShowWelcome] = useState(false);
@@ -82,6 +97,20 @@ export default function App() {
     }
   }, [session]);
 
+  // register push notifications & load subscription state
+  useEffect(() => {
+    if (!session?.user) return;
+    (async () => {
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        setPushToken(token);
+        await scheduleTestNotification();
+      }
+      const sub = await AsyncStorage.getItem(`subscription_${session.user.id}`);
+      if (sub === 'pro') setIsPro(true);
+    })();
+  }, [session]);
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -115,44 +144,45 @@ export default function App() {
       showWelcome={showWelcome}
       setShowWelcome={setShowWelcome}
       welcomeAnim={welcomeAnim}
+      isPro={isPro}
+      setIsPro={setIsPro}
     />
   );
 }
 
-function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim }) {
+function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim, isPro, setIsPro }) {
   const MAX_VIDEOS = 20;
   const [currentScreen, setCurrentScreen] = useState('home');
   const [videos, setVideos] = useState([]);
+  const [loadingVideos, setLoadingVideos] = useState(true);
   const [detail, setDetail] = useState(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [lastTab, setLastTab] = useState(null);
+  const [videoTab, setVideoTab] = useState('upload');
+  const [uploading, setUploading] = useState(false);
 
-  // track streak from calorie_logs
+  // track streak from profile.streak
   const [streak, setStreak] = useState(0);
   const videoRef = useRef(null);
+  const indicatorAnim = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     async function fetchStreak() {
       try {
         const userId = session.user.id;
-        let { data: latestLog, error } = await supabase
-          .from('calorie_logs')
-          .select('streak_days')
+        const { data: profileData, error } = await supabase
+          .from('profile')
+          .select('streak')
           .eq('user_id', userId)
-          .order('log_date', { ascending: false })
-          .limit(1)
           .single();
 
         if (error && error.code !== 'PGRST116') {
           setStreak(0);
           return;
         }
-        if (latestLog) {
-          setStreak(latestLog.streak_days || 0);
-        } else {
-          setStreak(0);
-        }
+        setStreak(profileData?.streak || 0);
       } catch {
         setStreak(0);
       }
@@ -164,6 +194,34 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
       setStreak(0);
     }
   }, [session]);
+
+  useEffect(() => {
+    async function loadVideos() {
+      try {
+        setLoadingVideos(true);
+        const { data, error } = await supabase
+          .from('videos')
+          .select('id, storage_url, thumb_url, score, critique')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false })
+          .limit(MAX_VIDEOS);
+        if (!error && data) {
+          const mapped = data.map((v) => ({
+            id: v.id.toString(),
+            uri: v.storage_url,
+            thumb: v.thumb_url,
+            score: v.score,
+            critique: v.critique,
+          }));
+          setVideos(mapped);
+        }
+      } finally {
+        setLoadingVideos(false);
+      }
+    }
+
+    loadVideos();
+  }, []);
 
   const selectVideo = async () => {
     if (videos.length >= MAX_VIDEOS) return;
@@ -197,15 +255,19 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         const userId = session.user.id;
         const fileExt = asset.uri.split('.').pop();
         const fileName = `${userId}/${localID}.${fileExt}`;
-        const videoData = await FileSystem.readAsStringAsync(asset.uri, {
+        setUploading(true);
+        const fileData = await FileSystem.readAsStringAsync(asset.uri, {
           encoding: FileSystem.EncodingType.Base64,
         });
         const { error: uploadError } = await supabase.storage
           .from('videos')
-          .upload(fileName, Buffer.from(videoData, 'base64'), {
+          .upload(fileName, Buffer.from(fileData, 'base64'), {
             contentType: 'video/mp4',
           });
-        if (uploadError) return;
+        if (uploadError) {
+          setUploading(false);
+          return;
+        }
 
         const {
           data: { publicUrl },
@@ -214,15 +276,18 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
         await supabase.from('videos').insert([
           {
             user_id: userId,
-            video_url: publicUrl,
+            storage_url: publicUrl,
             thumb_url: thumbUri,
+            exercise: '',
             score,
             critique,
           },
         ]);
+        setUploading(false);
       }
     } catch {
       // silent fail
+      setUploading(false);
     }
   };
 
@@ -237,27 +302,56 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
       setCurrentScreen(tab);
     }
     setLastTab(tab);
+    const index = tabs.findIndex((t) => t.screen === tab);
+    if (index >= 0) {
+      Animated.spring(indicatorAnim, {
+        toValue: index * tabWidth + tabWidth / 2 - 15,
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
   const deleteVideo = (v) => setVideos((prev) => prev.filter((x) => x.id !== v.id));
 
+  const tabs = [
+    { icon: 'podium', screen: 'rank', label: 'Rank' },
+    { icon: 'calculator', screen: 'calories', label: 'Calories' },
+    { icon: 'body', screen: 'body', label: 'Body' },
+    { icon: 'add', screen: 'home', main: true },
+    { icon: 'barbell', screen: 'strength', label: 'Strength' },
+    { icon: 'trophy', screen: 'leaderboard', label: 'Top' },
+    { icon: 'list', screen: 'challenges', label: 'Goals' },
+  ];
+
+  const tabWidth = width / tabs.length;
+
+  useEffect(() => {
+    const index = tabs.findIndex((t) => t.screen === currentScreen);
+    if (index >= 0) {
+      indicatorAnim.setValue(index * tabWidth + tabWidth / 2 - 15);
+    }
+  }, [width, currentScreen]);
+
   const Navbar = () => (
     <View style={[styles.navbar, !isDarkMode && styles.navbarLight]}>
-      {[
-        ['calculator', 'calories'],
-        ['body', 'body'],
-        ['add', 'home', true],
-        ['barbell', 'strength'],
-        ['trophy', 'leaderboard'],
-      ].map(([icon, screen, main]) => (
+      <Animated.View
+        style={[
+          styles.navIndicator,
+          { transform: [{ translateX: indicatorAnim }] },
+        ]}
+      />
+      {tabs.map(({ icon, screen, label, main }) => (
         <TouchableOpacity
           key={screen}
-          style={main ? styles.navMainBtn : styles.navItem}
+          style={[
+            main ? styles.navMainBtn : styles.navItem,
+            !main && currentScreen === screen && styles.navItemActive,
+          ]}
           onPress={() => pressTab(screen)}
         >
           <Ionicons
             name={icon}
-            size={main ? 32 : 24}
+            size={main ? 36 : 28}
             color={
               screen === currentScreen
                 ? '#1abc9c'
@@ -272,46 +366,12 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
   );
 
   const Header = () => (
-    <View style={[styles.header, !isDarkMode && styles.headerLight]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Image
-          source={require('./images/logo.png')}
-          style={{ width: 24, height: 24, marginRight: 6, borderRadius: 4 }}
-        />
-        <Text
-          style={[styles.headerTitle, !isDarkMode && styles.headerTitleLight]}
-        >
-          LiftLabs
-        </Text>
-      </View>
-
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        {/* STREAK DISPLAY */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginRight: 20,
-          }}
-        >
-          <Ionicons name="flame" size={20} color="#1abc9c" />
-          <Text
-            style={{
-              color: isDarkMode ? '#fff' : '#1a1a1a',
-              marginLeft: 4,
-              fontWeight: '600',
-            }}
-          >
-            {streak}-Day
-          </Text>
-        </View>
-
-        {/* PROFILE BUTTON */}
-        <TouchableOpacity onPress={() => setCurrentScreen('profile')}>
-          <Ionicons name="person-circle" size={32} color="#1abc9c" />
-        </TouchableOpacity>
-      </View>
-    </View>
+    <TopBar
+      title="LiftLabs"
+      streak={streak}
+      dark={isDarkMode}
+      onProfilePress={() => setCurrentScreen('profile')}
+    />
   );
 
   const BackBtn = () => (
@@ -375,84 +435,123 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
           </TouchableOpacity>
         </AnimatedGradient>
       )}
+      <View style={[styles.videoTabs, !isDarkMode && styles.videoTabsLight]}>
+        <TouchableOpacity
+          style={[styles.videoTabBtn, videoTab === 'upload' && styles.videoTabBtnActive]}
+          onPress={() => setVideoTab('upload')}
+        >
+          <Text style={videoTab === 'upload' ? styles.videoTabTextActive : styles.videoTabText}>
+            Upload Video
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.videoTabBtn, videoTab === 'live' && styles.videoTabBtnActive]}
+          onPress={() => {
+            if (LIVE_WORKOUT_ENABLED) {
+              setVideoTab('live');
+              setCurrentScreen('realtime');
+            } else {
+              Alert.alert('Premium Feature', 'Real-time analysis is available for Pro users.');
+            }
+          }}
+        >
+          <Text style={videoTab === 'live' ? styles.videoTabTextActive : styles.videoTabText}>
+            Live Workout
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {(uploading || loadingVideos) && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#1abc9c" />
+          <Text style={styles.uploadText}>
+            {uploading ? 'Uploading...' : 'Loading...'}
+          </Text>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {videos.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="videocam-outline"
-              size={64}
-              color={isDarkMode ? '#666' : '#999'}
-            />
+        {videoTab === 'upload' ? (
+          videos.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="videocam-outline"
+                size={64}
+                color={isDarkMode ? '#666' : '#999'}
+              />
+              <Text
+                style={[styles.emptyText, !isDarkMode && styles.emptyTextLight]}
+              >
+                No videos yet
+              </Text>
+              <Text
+                style={[
+                  styles.emptySubtext,
+                  !isDarkMode && styles.emptySubtextLight,
+                ]}
+              >
+                Tap the + button to add your first workout video
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View
+                style={[styles.tipBanner, !isDarkMode && styles.tipBannerLight]}
+              >
+                <TouchableOpacity
+                  style={styles.tipContent}
+                  onPress={() => setShowTooltip(true)}
+                >
+                  <Ionicons name="information-circle" size={16} color="#1abc9c" />
+                  <Text
+                    style={[styles.tipText, !isDarkMode && styles.tipTextLight]}
+                  >
+                    Tap videos for options • Need help?
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.videoGrid}>
+                {videos.map((v) => (
+                  <TouchableOpacity
+                    key={v.id}
+                    style={[styles.videoItem, !isDarkMode && styles.videoItemLight]}
+                    onPress={() => setDetail(v)}
+                  >
+                    <Image source={{ uri: v.thumb }} style={styles.videoThumbnail} />
+                    <View style={styles.videoOverlay}>
+                      <Ionicons
+                        name="play-circle"
+                        size={32}
+                        color="rgba(255,255,255,0.85)"
+                      />
+                    </View>
+                    <View
+                      style={[
+                        styles.scoreBadge,
+                        v.score >= 85
+                          ? styles.scoreBadgeExcellent
+                          : v.score >= 75
+                          ? styles.scoreBadgeGood
+                          : styles.scoreBadgeNeedsWork,
+                      ]}
+                    >
+                      <Text style={styles.scoreText}>{v.score}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )
+        ) : (
+          <View style={styles.liveLocked}>
+            <Ionicons name="lock-closed" size={64} color="#1abc9c" />
             <Text
               style={[styles.emptyText, !isDarkMode && styles.emptyTextLight]}
             >
-              No videos yet
-            </Text>
-            <Text
-              style={[
-                styles.emptySubtext,
-                !isDarkMode && styles.emptySubtextLight,
-              ]}
-            >
-              Tap the + button to add your first workout video
+              Real-time analysis coming soon
             </Text>
           </View>
-        ) : (
-          <>
-            <View
-              style={[styles.tipBanner, !isDarkMode && styles.tipBannerLight]}
-            >
-              <TouchableOpacity
-                style={styles.tipContent}
-                onPress={() => setShowTooltip(true)}
-              >
-                <Ionicons name="information-circle" size={16} color="#1abc9c" />
-                <Text
-                  style={[styles.tipText, !isDarkMode && styles.tipTextLight]}
-                >
-                  Tap videos for options • Need help?
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.videoGrid}>
-              {videos.map((v) => (
-                <TouchableOpacity
-                  key={v.id}
-                  style={[styles.videoItem, !isDarkMode && styles.videoItemLight]}
-                  onPress={() =>
-                    // skip Alert.alert—open detail immediately
-                    setDetail(v)
-                  }
-                >
-                  <Image
-                    source={{ uri: v.thumb }}
-                    style={styles.videoThumbnail}
-                  />
-                  <View style={styles.videoOverlay}>
-                    <Ionicons
-                      name="play-circle"
-                      size={32}
-                      color="rgba(255,255,255,0.85)"
-                    />
-                  </View>
-                  <View
-                    style={[
-                      styles.scoreBadge,
-                      v.score >= 85
-                        ? styles.scoreBadgeExcellent
-                        : v.score >= 75
-                        ? styles.scoreBadgeGood
-                        : styles.scoreBadgeNeedsWork,
-                    ]}
-                  >
-                    <Text style={styles.scoreText}>{v.score}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
         )}
       </ScrollView>
       <Navbar />
@@ -501,6 +600,16 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
                 >
                   <Ionicons name="play-back" size={20} color="#1abc9c" />
                   <Text style={styles.actionBtnText}>Replay</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.liveBtn]}
+                  onPress={() => {
+                    setDetail(null);
+                    setCurrentScreen('realtime');
+                  }}
+                >
+                  <Ionicons name="videocam" size={20} color="#1abc9c" />
+                  <Text style={styles.actionBtnText}>Live</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.closeBtn]}
@@ -586,6 +695,29 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
     case 'leaderboard':
       return <LeaderboardScreen />;
 
+    case 'rank':
+      return (
+        <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+          <Header />
+          <RankScreen session={session} isDarkMode={isDarkMode} />
+          <Navbar />
+        </View>
+      );
+
+    case 'challenges':
+      return (
+        <View style={[styles.container, !isDarkMode && styles.containerLight]}>
+          <Header />
+          <ChallengesScreen
+            session={session}
+            isDarkMode={isDarkMode}
+            isPremium={isPro}
+            onStreakUpdate={(s) => setStreak(s)}
+          />
+          <Navbar />
+        </View>
+      );
+
     case 'profile':
       return (
         <ProfileScreen
@@ -597,8 +729,24 @@ function MainApp({ session, setSession, showWelcome, setShowWelcome, welcomeAnim
             await supabase.auth.signOut();
             setSession(null);
           }}
+          onManageSubscription={() => setCurrentScreen('subscription')}
         />
       );
+
+    case 'subscription':
+      return (
+        <SubscriptionScreen
+          isPro={isPro}
+          onSubscribe={async () => {
+            await AsyncStorage.setItem(`subscription_${session.user.id}`, 'pro');
+            setIsPro(true);
+          }}
+          onClose={() => setCurrentScreen('profile')}
+        />
+      );
+
+    case 'realtime':
+      return <RealTimeVideo goBack={() => setCurrentScreen('home')} />;
 
     default:
       return <Home />;

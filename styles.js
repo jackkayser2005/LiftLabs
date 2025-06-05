@@ -103,10 +103,13 @@ export default StyleSheet.create({
     borderRadius: 14,
     marginHorizontal: 3,
   },
+  navItemActive: {
+    backgroundColor: 'rgba(26,188,156,0.12)',
+  },
   navMainBtn: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#1abc9c',
     alignItems: 'center',
     justifyContent: 'center',
@@ -138,6 +141,7 @@ export default StyleSheet.create({
     color: '#1abc9c',
     fontWeight: '600',
   },
+ 
 
   // === TIP BANNER STYLES ===
   tipBanner: {
@@ -329,6 +333,11 @@ export default StyleSheet.create({
   },
   replayBtn: {
     backgroundColor: 'rgba(26, 188, 156, 0.1)',
+    borderWidth: 2,
+    borderColor: '#1abc9c',
+  },
+  liveBtn: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 2,
     borderColor: '#1abc9c',
   },
@@ -619,6 +628,15 @@ export default StyleSheet.create({
   },
   progressTextLight: {
     color: '#6c757d',
+  },
+  rankInfo: {
+    color: '#bbb',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  rankInfoLight: {
+    color: '#555',
   },
 
   // === STATS SECTION ===
@@ -1245,6 +1263,26 @@ export default StyleSheet.create({
     fontWeight: '700',
   },
 
+  // --- WEIGHT PROGRESS ---
+  weightSection: {
+    backgroundColor: '#111',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  weightSectionLight: {
+    backgroundColor: '#fff',
+    borderColor: '#e0e0e0',
+  },
+
   // ─── CALORIES OVERVIEW ───
   calorieOverview: {
     backgroundColor: '#111',
@@ -1740,8 +1778,56 @@ genderText: {
 genderTextLight: {
   color: '#1a1a1a',
 },
-genderTextActive: {
-  color: '#1abc9c',
-},
+  genderTextActive: {
+    color: '#1abc9c',
+  },
+
+  // === VIDEO TABS ===
+  videoTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#222',
+  },
+  videoTabsLight: {
+    backgroundColor: '#e9ecef',
+  },
+  videoTabBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 12,
+    marginHorizontal: 2,
+  },
+  videoTabBtnActive: {
+    backgroundColor: '#1abc9c',
+  },
+  videoTabText: {
+    color: '#bbb',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  videoTabTextActive: {
+    color: '#fff',
+  },
+
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  uploadText: {
+    marginTop: 8,
+    color: '#1abc9c',
+    fontWeight: '600',
+  },
+  liveLocked: {
+    alignItems: 'center',
+    marginTop: 40,
+  },
 
 });
